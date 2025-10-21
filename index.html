@@ -96,7 +96,33 @@
         }
         #compareBtn.active {
             background: #34a853;
+        }       
+        #compactDropZone {
+            border: 2px dashed #ccc;
+            border-radius: 6px;
+            padding: 12px 10px;
+            text-align: center;
+            background: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.2s;
         }
+        #compactDropZone.dragover {
+            border-color: #1a73e8;
+            background: #e8f0fe;
+        }
+        #compactDropZone p {
+            color: #5f6368;
+            font-size: 12px;
+            margin: 0;
+        }
+        #compactDropZone input {
+            display: none; 
+        }
+
+        #compactDropZone.hidden {
+            display: none;
+        }
+
         #dropZone {
             border: 2px dashed #ccc;
             border-radius: 8px;
@@ -277,6 +303,24 @@
         .file-actions {
             display: flex;
             gap: 4px;
+            flex-wrap: wrap;
+        }
+        .file-play {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            flex: 1;
+            font-weight: 500;
+        }
+        .file-play:hover {
+            background: #1557b0;
+        }
+        .file-play.playing {
+            background: #ea4335;
         }
         .file-toggle {
             background: #34a853;
@@ -334,6 +378,46 @@
             display: none;
             white-space: nowrap;
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        #playbackControls {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 150;
+            display: none;
+            align-items: center;
+            gap: 10px;
+        }
+        #playbackControls.show {
+            display: flex;
+        }
+        .speed-btn {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .speed-btn:hover {
+            background: #e8f0fe;
+            border-color: #1a73e8;
+        }
+        .speed-btn.active {
+            background: #1a73e8;
+            color: white;
+            border-color: #1a73e8;
+        }
+        .speed-label {
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
         }
         #comparisonPanel {
             position: fixed;
@@ -510,11 +594,18 @@
             border-radius: 4px;
             cursor: crosshair;
         }
+        #elevationChart.drag-mode {
+            cursor: grab;
+        }
+        #elevationChart.dragging {
+            cursor: grabbing;
+        }
         .chart-controls {
             margin-top: 10px;
             display: flex;
             gap: 10px;
             justify-content: center;
+            flex-wrap: wrap;
         }
         .chart-control-btn {
             background: #1a73e8;
@@ -533,6 +624,9 @@
             background: #ccc;
             cursor: not-allowed;
         }
+        .chart-control-btn.active {
+            background: #34a853;
+        }
         .chart-legend {
             margin-top: 15px;
             padding: 10px;
@@ -544,6 +638,17 @@
             align-items: center;
             margin-right: 20px;
             margin-bottom: 5px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        .legend-item:hover {
+            background: #e8f0fe;
+        }
+        .legend-item.active {
+            background: #e8f0fe;
+            box-shadow: 0 0 0 2px #1a73e8;
         }
         .legend-color {
             width: 30px;
@@ -553,6 +658,42 @@
         .legend-label {
             font-size: 13px;
             color: #333;
+        }
+        .legend-offset {
+            font-size: 11px;
+            color: #666;
+            margin-left: 8px;
+            font-style: italic;
+        }
+
+        #speedSlider {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            border-radius: 3px;
+            background: linear-gradient(to right, #e0e0e0 0%, #1a73e8 0%);
+            outline: none;
+        }
+
+        #speedSlider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #1a73e8;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        #speedSlider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #1a73e8;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
     </style>
 </head>
@@ -567,9 +708,13 @@
             <button id="sidebarToggle" title="Toggle sidebar">◀</button>
             
             <div id="sidebarHeader">
-                <h2>📁 Routes</h2>
-                <button id="compareBtn">📊 Compare Routes</button>
+            <h2>📂 Routes</h2>
+            <button id="compareBtn">📊 Compare Routes</button>
+            <div id="compactDropZone" class="hidden">
+                <p>➕ Add more routes</p>
+                <input type="file" id="compactFileInput" accept=".gpx,.fit" multiple>
             </div>
+        </div>
 
             <div id="dropZone">
                 <p>📂 Drag and drop GPX or FIT files</p>
@@ -607,6 +752,16 @@
 
     <div id="routeTooltip"></div>
 
+    <div id="playbackControls">
+    <span class="speed-label">Playback Speed:</span>
+    <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 11px; color: #999;">1x</span>
+        <input type="range" id="speedSlider" min="0" max="100" value="0" style="width: 200px;">
+        <span style="font-size: 11px; color: #999;">1000x</span>
+        <span id="speedDisplay" style="font-size: 13px; font-weight: 600; color: #1a73e8; min-width: 50px;">1x</span>
+    </div>
+</div>
+
     <!-- Elevation Modal -->
     <div id="elevationModal">
         <div class="modal-content">
@@ -616,32 +771,21 @@
             </div>
             <canvas id="elevationChart"></canvas>
             <div class="chart-controls">
+                <button class="chart-control-btn" onclick="toggleDragMode()" id="dragModeBtn">✋ Drag to Align</button>
                 <button class="chart-control-btn" onclick="resetChartZoom()" id="resetZoomBtn" disabled>🔍 Reset Zoom</button>
+                <button class="chart-control-btn" onclick="resetOffsets()" id="resetOffsetsBtn" disabled>↺ Reset Offsets</button>
                 <span id="zoomInstructions" style="color: #666; font-size: 12px;">Click and drag to zoom into a region</span>
             </div>
             <div id="chartLegend" class="chart-legend"></div>
         </div>
     </div>
 
-    <!-- FIT File Parser Library - using ESM.run which handles dependencies -->
+    <!-- FIT File Parser Library -->
     <script type="module">
         import FitParserModule from 'https://esm.run/fit-file-parser@1.21.0';
-        console.log('✅ FIT parser imported via ESM');
-        console.log('FitParserModule:', FitParserModule);
-        console.log('FitParserModule.default:', FitParserModule.default);
-        
-        // Make it globally available
         window.FitParser = FitParserModule.default || FitParserModule;
-        console.log('window.FitParser:', window.FitParser);
-        
-        // Signal that FIT parser is ready
         window.fitParserReady = true;
         window.dispatchEvent(new Event('fitParserLoaded'));
-    </script>
-
-    <script>
-        // Wait for FIT parser to load before initializing
-        window.fitParserReady = false;
     </script>
 
     <script>
@@ -649,10 +793,23 @@
         let routes = [];
         let highlightedRoute = null;
         let compareMode = false;
-        let chartZoomState = null; // { minDistance, maxDistance }
+        let chartZoomState = null;
         let chartMouseDown = false;
         let chartSelectionStart = null;
-        let currentChartData = null; // Store current chart data for redrawing
+        let currentChartData = null;
+
+        window.playbackSpeed = 1; // Default 1x speed
+        window.playingRoutes = {}; // Track animation state for each route
+        
+        // Drag mode variables
+        let dragMode = false;
+        let selectedRouteForDrag = null;
+        let routeOffsets = {}; // Store distance offsets for each route
+        let isDragging = false;
+        let dragStartX = null;
+        let dragStartOffset = 0;
+        let animationFrameId = null;
+        
         const colors = [
             '#EA4335', '#4285F4', '#FBBC04', '#34A853', '#FF6D00', '#46BDC6', 
             '#7B1FA2', '#C2185B', '#00BCD4', '#8BC34A', '#FF5722', '#9C27B0',
@@ -678,7 +835,7 @@
         }
 
         function haversineDistance(coord1, coord2) {
-            const R = 6371; // Earth radius in km
+            const R = 6371;
             const dLat = toRad(coord2.lat - coord1.lat);
             const dLon = toRad(coord2.lng - coord1.lng);
             const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
@@ -716,20 +873,15 @@
 
         function parseFIT(arrayBuffer, color, filename, index) {
             try {
-                console.log(`Parsing FIT file: ${filename}`);
-                
-                // Check if FitParser is available
                 if (typeof FitParser === 'undefined' || !window.FitParser) {
-                    console.error('FitParser not yet loaded. fitParserReady:', window.fitParserReady);
                     alert('FIT parser is still loading. Please wait a moment and try again.');
                     return;
                 }
                 
-                console.log('FitParser is available, creating instance...');
                 const fitParser = new FitParser({
                     force: true,
                     speedUnit: 'km/h',
-                    lengthUnit: 'm',  // Use meters for elevation
+                    lengthUnit: 'm',
                     temperatureUnit: 'celsius',
                     elapsedRecordField: true,
                     mode: 'list'
@@ -737,19 +889,13 @@
                 
                 fitParser.parse(arrayBuffer, function (error, data) {
                     if (error) {
-                        console.error(`FIT parse error in ${filename}:`, error);
                         alert(`Error parsing FIT file ${filename}: ${error.message}`);
                         return;
                     }
                     
-                    console.log('FIT data parsed successfully:', data);
-                    
-                    // Extract records (trackpoints)
                     const records = data.records || [];
-                    console.log(`Found ${records.length} records in ${filename}`);
                     
                     if (records.length === 0) {
-                        console.error(`No records found in ${filename}`);
                         alert(`No data points found in ${filename}`);
                         return;
                     }
@@ -763,53 +909,32 @@
                     const speeds = [];
                     const paces = [];
                     
-                    // Process each record
                     records.forEach((record, i) => {
-                        // Check for position data
                         if (record.position_lat !== undefined && record.position_long !== undefined) {
-                            // The fit-file-parser library already converts to degrees
-                            // so we can use the values directly
                             const lat = record.position_lat;
                             const lng = record.position_long;
                             
-                            // Debug first coordinate and elevation
-                            if (i === 0) {
-                                console.log(`First coordinate: lat=${lat}, lng=${lng}`);
-                                console.log(`Raw altitude values - enhanced_altitude: ${record.enhanced_altitude}, altitude: ${record.altitude}`);
-                            }
-                            
-                            // Validate coordinates
                             if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
                                 coordinates.push({ lat, lng });
                                 
-                                // Elevation (already in meters)
                                 elevations.push(record.enhanced_altitude !== undefined ? record.enhanced_altitude : 
                                               record.altitude !== undefined ? record.altitude : null);
                                 
-                                // Timestamp
                                 timestamps.push(record.timestamp ? new Date(record.timestamp) : null);
-                                
-                                // Heart rate
                                 heartRates.push(record.heart_rate !== undefined ? record.heart_rate : null);
-                                
-                                // Cadence
                                 cadences.push(record.cadence !== undefined ? record.cadence : null);
-                                
-                                // Power
                                 powers.push(record.power !== undefined ? record.power : null);
                                 
-                                // Speed (convert m/s to km/h if needed)
                                 let speedKmh = null;
                                 if (record.enhanced_speed !== undefined) {
-                                    speedKmh = record.enhanced_speed * 3.6; // m/s to km/h
+                                    speedKmh = record.enhanced_speed * 3.6;
                                 } else if (record.speed !== undefined) {
                                     speedKmh = record.speed * 3.6;
                                 }
                                 speeds.push(speedKmh);
                                 
-                                // Calculate pace from speed
                                 if (speedKmh && speedKmh > 0) {
-                                    paces.push(60 / speedKmh); // min/km
+                                    paces.push(60 / speedKmh);
                                 } else {
                                     paces.push(null);
                                 }
@@ -818,43 +943,17 @@
                     });
                     
                     if (coordinates.length === 0) {
-                        console.error(`No valid coordinates found in ${filename}`);
                         alert(`No valid GPS data found in ${filename}`);
                         return;
                     }
                     
-                    // Debug: Check first few coordinates
-                    console.log(`First 3 coordinates from ${filename}:`, coordinates.slice(0, 3));
-                    console.log(`Sample distance check:`, coordinates.length > 1 ? haversineDistance(coordinates[0], coordinates[1]) : 'N/A');
-                    
-                    // Log what data we found
-                    const hrCount = heartRates.filter(hr => hr !== null).length;
-                    const cadCount = cadences.filter(c => c !== null).length;
-                    const pwrCount = powers.filter(p => p !== null).length;
-                    const speedCount = speeds.filter(s => s !== null).length;
-                    const validElevations = elevations.filter(e => e !== null);
-                    
-                    console.log(`Data found in ${filename}:`);
-                    console.log(`- Coordinates: ${coordinates.length}`);
-                    console.log(`- Elevation points: ${validElevations.length}`);
-                    if (validElevations.length > 0) {
-                        console.log(`- First 5 elevations:`, validElevations.slice(0, 5));
-                        console.log(`- Elevation range: ${Math.min(...validElevations)}m to ${Math.max(...validElevations)}m`);
-                    }
-                    console.log(`- Heart rate points: ${hrCount}`);
-                    console.log(`- Cadence points: ${cadCount}`);
-                    console.log(`- Power points: ${pwrCount}`);
-                    console.log(`- Speed/pace points: ${speedCount}`);
-                    
-                    // Calculate statistics
                     const distance = calculateDistance(coordinates);
                     const elevStats = calculateElevationStats(elevations.filter(e => e !== null));
                     let duration = null;
                     if (timestamps.length >= 2 && timestamps[0] && timestamps[timestamps.length - 1]) {
-                        duration = (timestamps[timestamps.length - 1] - timestamps[0]) / 1000 / 60; // minutes
+                        duration = (timestamps[timestamps.length - 1] - timestamps[0]) / 1000 / 60;
                     }
                     
-                    // Create map objects
                     const polyline = new google.maps.Polyline({
                         path: coordinates,
                         geodesic: true,
@@ -920,6 +1019,8 @@
                         selected: false,
                         originalWeight: 5,
                         originalOpacity: 1.0,
+                        animationMarker: null,
+                        isPlaying: false,
                         stats: {
                             distance: distance,
                             elevationGain: elevStats.gain,
@@ -931,13 +1032,11 @@
                     };
                     
                     routes.push(route);
-                    console.log(`Successfully added ${filename}. Total routes: ${routes.length}`);
                     updateFileList();
                     fitMapToRoutes();
                 });
                 
             } catch (error) {
-                console.error(`Error parsing FIT file ${filename}:`, error);
                 alert(`Error parsing FIT file ${filename}: ${error.message}`);
             }
         }
@@ -949,7 +1048,6 @@
                 
                 const parserError = xml.getElementsByTagName('parsererror');
                 if (parserError.length > 0) {
-                    console.error(`XML parse error in ${filename}`);
                     alert(`Invalid XML in ${filename}`);
                     return null;
                 }
@@ -962,12 +1060,6 @@
                 const powers = [];
                 
                 const trkpts = xml.getElementsByTagName('trkpt');
-                console.log(`Found ${trkpts.length} track points in ${filename}`);
-                
-                // Log first trackpoint structure for debugging
-                if (trkpts.length > 0 && trkpts[0]) {
-                    console.log(`Sample trackpoint structure from ${filename}:`, trkpts[0].outerHTML.substring(0, 500));
-                }
                 
                 if (trkpts.length > 0) {
                     for (let i = 0; i < trkpts.length; i++) {
@@ -989,11 +1081,9 @@
                             timestamps.push(null);
                         }
                         
-                        // Try to extract heart rate from extensions
                         let hr = null;
                         const extensions = trkpts[i].getElementsByTagName('extensions')[0];
                         if (extensions) {
-                            // Try multiple possible tag names and namespaces
                             const hrNodes = [
                                 extensions.getElementsByTagName('tpx1:hr')[0],
                                 extensions.getElementsByTagName('gpxtpx:hr')[0],
@@ -1011,7 +1101,6 @@
                         }
                         heartRates.push(hr);
                         
-                        // Try to extract cadence
                         let cad = null;
                         if (extensions) {
                             const cadNodes = [
@@ -1032,7 +1121,6 @@
                         }
                         cadences.push(cad);
                         
-                        // Try to extract power
                         let pwr = null;
                         if (extensions) {
                             const pwrNodes = [
@@ -1054,7 +1142,6 @@
                     }
                 } else {
                     const rtepts = xml.getElementsByTagName('rtept');
-                    console.log(`Found ${rtepts.length} route points in ${filename}`);
                     for (let i = 0; i < rtepts.length; i++) {
                         const lat = parseFloat(rtepts[i].getAttribute('lat'));
                         const lon = parseFloat(rtepts[i].getAttribute('lon'));
@@ -1070,12 +1157,10 @@
                 }
 
                 if (coordinates.length === 0) {
-                    console.error(`No coordinates found in ${filename}`);
                     alert(`No track points found in ${filename}`);
                     return null;
                 }
 
-                // Calculate speed and pace
                 const speeds = [];
                 const paces = [];
                 
@@ -1084,14 +1169,13 @@
                         speeds.push(null);
                         paces.push(null);
                     } else {
-                        const dist = haversineDistance(coordinates[i-1], coordinates[i]); // km
-                        const timeDiff = (timestamps[i] - timestamps[i-1]) / 1000 / 3600; // hours
+                        const dist = haversineDistance(coordinates[i-1], coordinates[i]);
+                        const timeDiff = (timestamps[i] - timestamps[i-1]) / 1000 / 3600;
                         
                         if (timeDiff > 0 && dist > 0) {
-                            const speed = dist / timeDiff; // km/h
+                            const speed = dist / timeDiff;
                             speeds.push(speed);
                             
-                            // Pace in min/km
                             const pace = 60 / speed;
                             paces.push(pace);
                         } else {
@@ -1101,36 +1185,11 @@
                     }
                 }
 
-                // Calculate statistics
                 const distance = calculateDistance(coordinates);
                 const elevStats = calculateElevationStats(elevations.filter(e => e !== null));
                 let duration = null;
                 if (timestamps.length >= 2 && timestamps[0] && timestamps[timestamps.length - 1]) {
-                    duration = (timestamps[timestamps.length - 1] - timestamps[0]) / 1000 / 60; // minutes
-                }
-
-                // Log what data we found
-                const hrCount = heartRates.filter(hr => hr !== null).length;
-                const cadCount = cadences.filter(c => c !== null).length;
-                const pwrCount = powers.filter(p => p !== null).length;
-                const speedCount = speeds.filter(s => s !== null).length;
-                
-                console.log(`Data found in ${filename}:`);
-                console.log(`- Coordinates: ${coordinates.length}`);
-                console.log(`- Elevation points: ${elevations.filter(e => e !== null).length}`);
-                console.log(`- Heart rate points: ${hrCount}`);
-                console.log(`- Cadence points: ${cadCount}`);
-                console.log(`- Power points: ${pwrCount}`);
-                console.log(`- Speed/pace points: ${speedCount}`);
-                
-                if (hrCount === 0 && heartRates.length > 0) {
-                    console.warn(`${filename}: Heart rate data exists but all values are null - check XML structure`);
-                }
-                if (cadCount === 0 && cadences.length > 0) {
-                    console.warn(`${filename}: Cadence data exists but all values are null - check XML structure`);
-                }
-                if (pwrCount === 0 && powers.length > 0) {
-                    console.warn(`${filename}: Power data exists but all values are null - check XML structure`);
+                    duration = (timestamps[timestamps.length - 1] - timestamps[0]) / 1000 / 60;
                 }
 
                 const polyline = new google.maps.Polyline({
@@ -1198,6 +1257,8 @@
                     selected: false,
                     originalWeight: 5,
                     originalOpacity: 1.0,
+                    animationMarker: null,
+                    isPlaying: false,
                     stats: {
                         distance: distance,
                         elevationGain: elevStats.gain,
@@ -1208,7 +1269,6 @@
                     }
                 };
             } catch (error) {
-                console.error(`Error parsing ${filename}:`, error);
                 alert(`Error parsing ${filename}: ${error.message}`);
                 return null;
             }
@@ -1322,7 +1382,7 @@
                 return;
             }
 
-            document.getElementById('modalTitle').textContent = `Elevation Profile: ${route.displayName} - Adaptive Smoothing`;
+            document.getElementById('modalTitle').textContent = `Elevation Profile: ${route.displayName}`;
             document.getElementById('elevationModal').classList.add('show');
             
             drawElevationChart([route]);
@@ -1336,7 +1396,7 @@
                 return;
             }
 
-            document.getElementById('modalTitle').textContent = `Elevation Profile Comparison (${selectedRoutes.length} routes) - Adaptive Smoothing`;
+            document.getElementById('modalTitle').textContent = `Elevation Profile Comparison (${selectedRoutes.length} routes)`;
             document.getElementById('elevationModal').classList.add('show');
             
             drawElevationChart(selectedRoutes);
@@ -1345,7 +1405,6 @@
         function compareMetric(metricType) {
             const selectedRoutes = routes.filter(r => r.selected);
             
-            // Filter routes that have the requested metric
             let validRoutes = [];
             let metricName = '';
             let yAxisLabel = '';
@@ -1399,17 +1458,38 @@
                 return;
             }
 
-            document.getElementById('modalTitle').textContent = `${metricName} Comparison (${validRoutes.length} routes) - Adaptive Smoothing`;
+            document.getElementById('modalTitle').textContent = `${metricName} Comparison (${validRoutes.length} routes)`;
             document.getElementById('elevationModal').classList.add('show');
             
             drawMetricChart(validRoutes, metricType, yAxisLabel, formatValue);
         }
 
-        function resetChartZoom() {
-            chartZoomState = null;
-            document.getElementById('resetZoomBtn').disabled = true;
+        function toggleDragMode() {
+            dragMode = !dragMode;
+            const btn = document.getElementById('dragModeBtn');
+            const canvas = document.getElementById('elevationChart');
+            const instructions = document.getElementById('zoomInstructions');
             
-            // Redraw with full data
+            if (dragMode) {
+                btn.classList.add('active');
+                btn.textContent = '✋ Drag Mode Active';
+                canvas.classList.add('drag-mode');
+                instructions.textContent = 'Click a route in the legend, then drag it horizontally to align';
+                updateLegend(); // Update legend to add click handlers
+            } else {
+                btn.classList.remove('active');
+                btn.textContent = '✋ Drag to Align';
+                canvas.classList.remove('drag-mode');
+                selectedRouteForDrag = null;
+                instructions.textContent = 'Click and drag to zoom into a region';
+                updateLegend();
+            }
+        }
+
+        function resetOffsets() {
+            routeOffsets = {};
+            document.getElementById('resetOffsetsBtn').disabled = true;
+            
             if (currentChartData) {
                 drawMetricChart(
                     currentChartData.routes,
@@ -1420,16 +1500,32 @@
             }
         }
 
-        function setupChartZoom(canvas, routesWithData, maxDistance) {
+        function resetChartZoom() {
+            chartZoomState = null;
+            document.getElementById('resetZoomBtn').disabled = true;
+            
+            if (currentChartData) {
+                drawMetricChart(
+                    currentChartData.routes,
+                    currentChartData.metricType,
+                    currentChartData.yAxisLabel,
+                    currentChartData.formatValue
+                );
+            }
+        }
+
+        function setupChartInteraction(canvas, routesWithData, maxDistance) {
             // Only setup once - check if already initialized
-            if (canvas.dataset.zoomInitialized === 'true') {
+            if (canvas.dataset.interactionInitialized === 'true') {
                 return;
             }
-            canvas.dataset.zoomInitialized = 'true';
+            canvas.dataset.interactionInitialized = 'true';
+            
+            // Store max distance globally
+            currentMaxDistance = maxDistance;
             
             const ctx = canvas.getContext('2d');
             const padding = 50;
-            const chartWidth = canvas.width - padding * 2;
             
             let selectionRect = null;
             
@@ -1437,22 +1533,56 @@
                 const rect = canvas.getBoundingClientRect();
                 const x = e.clientX - rect.left;
                 const y = e.clientY - rect.top;
+                const chartWidth = canvas.width - padding * 2;
                 
-                // Check if click is within chart area
                 if (x >= padding && x <= padding + chartWidth) {
-                    chartMouseDown = true;
-                    chartSelectionStart = { x, y };
-                    selectionRect = null;
+                    if (dragMode && selectedRouteForDrag !== null) {
+                        // Start dragging - use current chart data, not stale routesWithData
+                        isDragging = true;
+                        dragStartX = x;
+                        const routeId = currentChartData.routes[selectedRouteForDrag].filename;
+                        dragStartOffset = routeOffsets[routeId] || 0;
+                        canvas.classList.add('dragging');
+                    } else if (!dragMode) {
+                        // Start zoom selection
+                        chartMouseDown = true;
+                        chartSelectionStart = { x, y };
+                        selectionRect = null;
+                    }
                 }
             });
             
             canvas.addEventListener('mousemove', (e) => {
-                if (chartMouseDown && chartSelectionStart) {
-                    const rect = canvas.getBoundingClientRect();
-                    const x = e.clientX - rect.left;
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const chartWidth = canvas.width - padding * 2;
+                
+                if (isDragging && selectedRouteForDrag !== null) {
+                    // Calculate new offset using current data
+                    const pixelDiff = x - dragStartX;
+                    const distanceDiff = (pixelDiff / chartWidth) * currentMaxDistance;
+                    const routeId = currentChartData.routes[selectedRouteForDrag].filename;
+                    routeOffsets[routeId] = dragStartOffset + distanceDiff;
+                    
+                    document.getElementById('resetOffsetsBtn').disabled = false;
+                    
+                    // Use requestAnimationFrame to throttle redraws
+                    if (!animationFrameId) {
+                        animationFrameId = requestAnimationFrame(() => {
+                            if (currentChartData) {
+                                drawMetricChart(
+                                    currentChartData.routes,
+                                    currentChartData.metricType,
+                                    currentChartData.yAxisLabel,
+                                    currentChartData.formatValue
+                                );
+                            }
+                            animationFrameId = null;
+                        });
+                    }
+                } else if (chartMouseDown && chartSelectionStart) {
                     const y = e.clientY - rect.top;
                     
-                    // Draw selection rectangle
                     selectionRect = {
                         startX: Math.min(chartSelectionStart.x, x),
                         startY: Math.min(chartSelectionStart.y, y),
@@ -1460,7 +1590,6 @@
                         height: Math.abs(y - chartSelectionStart.y)
                     };
                     
-                    // Redraw with selection overlay
                     if (currentChartData) {
                         drawMetricChart(
                             currentChartData.routes,
@@ -1469,7 +1598,6 @@
                             currentChartData.formatValue
                         );
                         
-                        // Draw selection rectangle
                         ctx.strokeStyle = '#1a73e8';
                         ctx.fillStyle = 'rgba(26, 115, 232, 0.1)';
                         ctx.lineWidth = 2;
@@ -1480,27 +1608,42 @@
             });
             
             canvas.addEventListener('mouseup', (e) => {
-                if (chartMouseDown && chartSelectionStart) {
+                if (isDragging) {
+                    isDragging = false;
+                    canvas.classList.remove('dragging');
+                    // Cancel any pending animation frame
+                    if (animationFrameId) {
+                        cancelAnimationFrame(animationFrameId);
+                        animationFrameId = null;
+                    }
+                    // Do one final redraw
+                    if (currentChartData) {
+                        drawMetricChart(
+                            currentChartData.routes,
+                            currentChartData.metricType,
+                            currentChartData.yAxisLabel,
+                            currentChartData.formatValue
+                        );
+                    }
+                } else if (chartMouseDown && chartSelectionStart) {
                     const rect = canvas.getBoundingClientRect();
                     const x = e.clientX - rect.left;
+                    const chartWidth = canvas.width - padding * 2;
                     
-                    // Calculate distance range from pixel coordinates
                     const startX = Math.min(chartSelectionStart.x, x);
                     const endX = Math.max(chartSelectionStart.x, x);
                     
-                    // Only zoom if selection is wide enough (> 20px)
                     if (Math.abs(endX - startX) > 20) {
-                        const minDistance = ((startX - padding) / chartWidth) * maxDistance;
-                        const maxDistanceZoom = ((endX - padding) / chartWidth) * maxDistance;
+                        const minDistance = ((startX - padding) / chartWidth) * currentMaxDistance;
+                        const maxDistanceZoom = ((endX - padding) / chartWidth) * currentMaxDistance;
                         
                         chartZoomState = {
                             minDistance: Math.max(0, minDistance),
-                            maxDistance: Math.min(maxDistance, maxDistanceZoom)
+                            maxDistance: Math.min(currentMaxDistance, maxDistanceZoom)
                         };
                         
                         document.getElementById('resetZoomBtn').disabled = false;
                         
-                        // Redraw zoomed chart
                         if (currentChartData) {
                             drawMetricChart(
                                 currentChartData.routes,
@@ -1517,35 +1660,79 @@
             });
             
             canvas.addEventListener('mouseleave', () => {
+                if (isDragging) {
+                    isDragging = false;
+                    canvas.classList.remove('dragging');
+                    // Cancel any pending animation frame
+                    if (animationFrameId) {
+                        cancelAnimationFrame(animationFrameId);
+                        animationFrameId = null;
+                    }
+                }
                 chartMouseDown = false;
                 chartSelectionStart = null;
             });
         }
 
-        function getAdaptiveSmoothingParams(totalDistanceKm) {
-            // Automatically adjust smoothing based on route distance
-            // Returns { windowSize, decimationFactor }
+        function updateLegend() {
+            if (!currentChartData) return;
             
+            const legendDiv = document.getElementById('chartLegend');
+            legendDiv.innerHTML = '';
+            
+            currentChartData.routes.forEach((route, index) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                if (selectedRouteForDrag === index) {
+                    item.classList.add('active');
+                }
+                
+                const colorBox = document.createElement('div');
+                colorBox.className = 'legend-color';
+                colorBox.style.background = route.color;
+                
+                const label = document.createElement('span');
+                label.className = 'legend-label';
+                label.textContent = `${route.displayName} (${formatDistance(route.stats.distance)})`;
+                
+                const offset = routeOffsets[route.filename] || 0;
+                if (Math.abs(offset) > 0.01) {
+                    const offsetSpan = document.createElement('span');
+                    offsetSpan.className = 'legend-offset';
+                    offsetSpan.textContent = offset >= 0 ? `+${formatDistance(offset)}` : formatDistance(offset);
+                    label.appendChild(offsetSpan);
+                }
+                
+                item.appendChild(colorBox);
+                item.appendChild(label);
+                
+                if (dragMode) {
+                    item.style.cursor = 'pointer';
+                    item.onclick = () => {
+                        selectedRouteForDrag = selectedRouteForDrag === index ? null : index;
+                        updateLegend();
+                    };
+                }
+                
+                legendDiv.appendChild(item);
+            });
+        }
+
+        function getAdaptiveSmoothingParams(totalDistanceKm) {
             if (totalDistanceKm < 10) {
-                // Short run/ride (< 10km): Light smoothing
                 return { windowSize: 50, decimationFactor: 5 };
             } else if (totalDistanceKm < 25) {
-                // Medium run/ride (10-25km): Moderate smoothing
                 return { windowSize: 100, decimationFactor: 10 };
             } else if (totalDistanceKm < 50) {
-                // Long run/ride (25-50km): Medium-heavy smoothing
                 return { windowSize: 200, decimationFactor: 15 };
             } else if (totalDistanceKm < 100) {
-                // Ultra distance (50-100km): Heavy smoothing
                 return { windowSize: 300, decimationFactor: 25 };
             } else {
-                // Extreme ultra (100km+): Very heavy smoothing
                 return { windowSize: 500, decimationFactor: 50 };
             }
         }
 
         function smoothData(data, windowSize = 20) {
-            // Apply moving average smoothing
             if (data.length < windowSize) return data;
             
             const smoothed = [];
@@ -1569,8 +1756,6 @@
         }
 
         function decimateData(data, distances, factor = 20) {
-            // Reduce data points by taking every Nth point
-            // Keep first and last points for accuracy
             if (data.length <= factor * 2) return { data, distances };
             
             const decimatedData = [data[0]];
@@ -1581,7 +1766,6 @@
                 decimatedDistances.push(distances[i]);
             }
             
-            // Always include the last point
             decimatedData.push(data[data.length - 1]);
             decimatedDistances.push(distances[distances.length - 1]);
             
@@ -1589,16 +1773,10 @@
         }
 
         function drawMetricChart(routesToDraw, metricType, yAxisLabel, formatValue) {
-            // Store current chart data for zoom/redraw
             currentChartData = { routes: routesToDraw, metricType, yAxisLabel, formatValue };
             
             const canvas = document.getElementById('elevationChart');
             const ctx = canvas.getContext('2d');
-            
-            // Ensure canvas dimensions are set
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-            const legendDiv = document.getElementById('chartLegend');
             
             canvas.width = canvas.offsetWidth;
             canvas.height = canvas.offsetHeight;
@@ -1607,7 +1785,6 @@
             const chartWidth = canvas.width - padding * 2;
             const chartHeight = canvas.height - padding * 2;
             
-            // Get the metric data for each route
             const routesWithData = routesToDraw.map(route => {
                 const distances = [0];
                 for (let i = 1; i < route.coordinates.length; i++) {
@@ -1639,35 +1816,33 @@
                         break;
                 }
                 
-                // Get adaptive smoothing parameters based on route distance
                 const { windowSize, decimationFactor } = getAdaptiveSmoothingParams(totalDistanceKm);
-                console.log(`Route ${route.displayName} (${totalDistanceKm.toFixed(1)}km): smoothing window=${windowSize}, decimation=${decimationFactor}`);
-                
-                // Apply adaptive smoothing
                 const smoothedData = smoothData(metricData, windowSize);
-                
-                // Then decimate to reduce visual clutter
                 const { data: finalData, distances: finalDistances } = decimateData(smoothedData, distances, decimationFactor);
+                
+                // Apply offset
+                const offset = routeOffsets[route.filename] || 0;
+                const offsetDistances = finalDistances.map(d => d + offset);
                 
                 return {
                     ...route,
-                    cumulativeDistances: finalDistances,
+                    cumulativeDistances: offsetDistances,
                     totalDistance: distances[distances.length - 1],
                     metricData: finalData
                 };
             });
             
-            // Find global min/max for the metric and max distance
             let globalMin = Infinity;
             let globalMax = -Infinity;
             let maxDistance = 0;
             
-            // Apply zoom filter if active
-            const originalMaxDistance = Math.max(...routesWithData.map(r => r.totalDistance));
+            const originalMaxDistance = Math.max(...routesWithData.map(r => {
+                const offset = routeOffsets[r.filename] || 0;
+                return r.totalDistance + offset;
+            }));
             
             const zoomedRoutes = routesWithData.map(route => {
                 if (chartZoomState) {
-                    // Filter data points within zoom range
                     const filteredData = [];
                     const filteredDistances = [];
                     
@@ -1675,7 +1850,7 @@
                         const dist = route.cumulativeDistances[i];
                         if (dist >= chartZoomState.minDistance && dist <= chartZoomState.maxDistance) {
                             filteredData.push(route.metricData[i]);
-                            filteredDistances.push(dist - chartZoomState.minDistance); // Adjust to start at 0
+                            filteredDistances.push(dist - chartZoomState.minDistance);
                         }
                     }
                     
@@ -1696,10 +1871,10 @@
                     if (min < globalMin) globalMin = min;
                     if (max > globalMax) globalMax = max;
                 }
-                if (route.totalDistance > maxDistance) maxDistance = route.totalDistance;
+                const routeMax = Math.max(...route.cumulativeDistances);
+                if (routeMax > maxDistance) maxDistance = routeMax;
             });
             
-            // Add padding to the range for better visualization
             const range = globalMax - globalMin;
             const padding_percent = 0.1;
             globalMin = globalMin - (range * padding_percent);
@@ -1725,7 +1900,6 @@
                 ctx.fillText(formatValue(value), padding - 5, y + 4);
             }
             
-            // Draw vertical distance grid lines
             for (let i = 0; i <= 5; i++) {
                 const x = padding + (chartWidth / 5) * i;
                 ctx.beginPath();
@@ -1745,10 +1919,8 @@
                 const metricData = route.metricData;
                 const distances = route.cumulativeDistances;
                 
-                // Ensure we have matching lengths
                 const dataLength = Math.min(metricData.length, distances.length);
                 
-                // Draw filled area if only one route
                 if (routesToDraw.length === 1) {
                     ctx.strokeStyle = route.color;
                     ctx.fillStyle = route.color + '25';
@@ -1772,7 +1944,6 @@
                     ctx.fill();
                 }
                 
-                // Draw line
                 ctx.strokeStyle = route.color;
                 ctx.lineWidth = 1.5;
                 ctx.globalAlpha = 0.9;
@@ -1793,7 +1964,7 @@
                     }
                 }
                 ctx.stroke();
-                ctx.globalAlpha = 1.0; // Reset transparency
+                ctx.globalAlpha = 1.0;
             });
             
             // Draw axes
@@ -1821,27 +1992,12 @@
             ctx.textAlign = 'center';
             ctx.fillText('Distance', canvas.width / 2, canvas.height - 10);
             
-            // Create legend
-            legendDiv.innerHTML = '';
-            routesWithData.forEach(route => {
-                const item = document.createElement('div');
-                item.className = 'legend-item';
-                
-                const colorBox = document.createElement('div');
-                colorBox.className = 'legend-color';
-                colorBox.style.background = route.color;
-                
-                const label = document.createElement('span');
-                label.className = 'legend-label';
-                label.textContent = `${route.displayName} (${formatDistance(route.stats.distance)})`;
-                
-                item.appendChild(colorBox);
-                item.appendChild(label);
-                legendDiv.appendChild(item);
-            });
+            updateLegend();
             
-            // Setup zoom functionality
-            setupChartZoom(canvas, zoomedRoutes, originalMaxDistance);
+            // Update current max distance for event handlers
+            currentMaxDistance = originalMaxDistance;
+            
+            setupChartInteraction(canvas, zoomedRoutes, originalMaxDistance);
         }
 
         function drawElevationChart(routesToDraw) {
@@ -1852,11 +2008,23 @@
             document.getElementById('elevationModal').classList.remove('show');
             chartZoomState = null;
             currentChartData = null;
+            dragMode = false;
+            selectedRouteForDrag = null;
+            routeOffsets = {};
             document.getElementById('resetZoomBtn').disabled = true;
+            document.getElementById('resetOffsetsBtn').disabled = true;
+            document.getElementById('dragModeBtn').classList.remove('active');
+            document.getElementById('dragModeBtn').textContent = '✋ Drag to Align';
             
-            // Reset zoom initialization flag
+            // Reset interaction flag so it can be reinitialized next time
             const canvas = document.getElementById('elevationChart');
-            canvas.dataset.zoomInitialized = 'false';
+            canvas.dataset.interactionInitialized = 'false';
+            
+            // Cancel any pending animation frames
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
         }
 
         function toggleCompareMode() {
@@ -1897,7 +2065,6 @@
                 return;
             }
             
-            // Check which metrics have data
             const hasElevation = selectedRoutes.some(r => r.elevations && r.elevations.length > 0);
             const hasSpeed = selectedRoutes.some(r => r.speeds && r.speeds.length > 0);
             const hasPace = selectedRoutes.some(r => r.paces && r.paces.length > 0);
@@ -1905,7 +2072,6 @@
             const hasCadence = selectedRoutes.some(r => r.cadences && r.cadences.length > 0);
             const hasPower = selectedRoutes.some(r => r.powers && r.powers.length > 0);
             
-            // Enable/disable buttons
             const elevBtn = document.getElementById('compareElevationBtn');
             const speedBtn = document.getElementById('compareSpeedBtn');
             const paceBtn = document.getElementById('comparePaceBtn');
@@ -1913,30 +2079,12 @@
             const cadBtn = document.getElementById('compareCadenceBtn');
             const pwrBtn = document.getElementById('comparePowerBtn');
             
-            if (elevBtn) {
-                elevBtn.disabled = !hasElevation;
-                elevBtn.title = hasElevation ? 'Compare elevation profiles' : 'No elevation data available';
-            }
-            if (speedBtn) {
-                speedBtn.disabled = !hasSpeed;
-                speedBtn.title = hasSpeed ? 'Compare speed profiles' : 'No speed data available';
-            }
-            if (paceBtn) {
-                paceBtn.disabled = !hasPace;
-                paceBtn.title = hasPace ? 'Compare pace profiles' : 'No pace data available';
-            }
-            if (hrBtn) {
-                hrBtn.disabled = !hasHeartRate;
-                hrBtn.title = hasHeartRate ? 'Compare heart rate profiles' : 'No heart rate data available';
-            }
-            if (cadBtn) {
-                cadBtn.disabled = !hasCadence;
-                cadBtn.title = hasCadence ? 'Compare cadence profiles' : 'No cadence data available';
-            }
-            if (pwrBtn) {
-                pwrBtn.disabled = !hasPower;
-                pwrBtn.title = hasPower ? 'Compare power profiles' : 'No power data available';
-            }
+            if (elevBtn) elevBtn.disabled = !hasElevation;
+            if (speedBtn) speedBtn.disabled = !hasSpeed;
+            if (paceBtn) paceBtn.disabled = !hasPace;
+            if (hrBtn) hrBtn.disabled = !hasHeartRate;
+            if (cadBtn) cadBtn.disabled = !hasCadence;
+            if (pwrBtn) pwrBtn.disabled = !hasPower;
             
             comparisonPanel.classList.add('show');
             
@@ -1981,11 +2129,7 @@
         }
 
         function handleFiles(files) {
-            console.log(`Processing ${files.length} files`);
-            
             Array.from(files).forEach((file, index) => {
-                console.log(`File ${index + 1}: ${file.name}`);
-                
                 const isGPX = file.name.toLowerCase().endsWith('.gpx');
                 const isFIT = file.name.toLowerCase().endsWith('.fit');
                 
@@ -1996,31 +2140,23 @@
 
                 const reader = new FileReader();
                 reader.onerror = function() {
-                    console.error(`Failed to read file: ${file.name}`);
                     alert(`Error reading ${file.name}`);
                 };
                 
                 if (isGPX) {
-                    // Read GPX as text
                     reader.onload = function(e) {
-                        console.log(`Loaded ${file.name}, parsing as GPX...`);
                         const color = colors[routes.length % colors.length];
                         const route = parseGPX(e.target.result, color, file.name, routes.length);
                         
                         if (route) {
                             routes.push(route);
-                            console.log(`Successfully added ${file.name}. Total routes: ${routes.length}`);
                             updateFileList();
                             fitMapToRoutes();
-                        } else {
-                            console.error(`Failed to parse ${file.name}`);
                         }
                     };
                     reader.readAsText(file);
                 } else if (isFIT) {
-                    // Read FIT as ArrayBuffer
                     reader.onload = function(e) {
-                        console.log(`Loaded ${file.name}, parsing as FIT...`);
                         const color = colors[routes.length % colors.length];
                         parseFIT(e.target.result, color, file.name, routes.length);
                     };
@@ -2032,13 +2168,16 @@
         function updateFileList() {
             const fileList = document.getElementById('fileList');
             const dropZone = document.getElementById('dropZone');
+            const compactDropZone = document.getElementById('compactDropZone');
             
             if (routes.length === 0) {
                 fileList.classList.add('hidden');
                 dropZone.classList.remove('hidden');
+                compactDropZone.classList.add('hidden');
             } else {
                 fileList.classList.remove('hidden');
                 dropZone.classList.add('hidden');
+                compactDropZone.classList.remove('hidden');
             }
             
             fileList.innerHTML = '';
@@ -2118,7 +2257,6 @@
                 nameContainer.appendChild(displayNameEl);
                 nameContainer.appendChild(originalNameEl);
                 
-                // Stats display
                 const statsDiv = document.createElement('div');
                 statsDiv.className = 'file-stats';
                 statsDiv.innerHTML = `
@@ -2151,6 +2289,19 @@
                     actions.appendChild(elevBtn);
                 }
                 
+                // Add play button if route has valid timestamps
+                const hasValidTimestamps = route.timestamps && route.timestamps.some(t => t !== null && t !== undefined);
+                if (hasValidTimestamps) {
+                    const playBtn = document.createElement('button');
+                    playBtn.className = 'file-play' + (route.isPlaying ? ' playing' : '');
+                    playBtn.textContent = route.isPlaying ? '⏸️ Pause' : '▶️ Play';
+                    playBtn.onclick = function(e) {
+                        e.stopPropagation();
+                        toggleRouteAnimation(index);
+                    };
+                    actions.appendChild(playBtn);
+                }
+                
                 const toggleBtn = document.createElement('button');
                 toggleBtn.className = 'file-toggle' + (route.visible ? '' : ' hidden-route');
                 toggleBtn.textContent = route.visible ? '👁️' : '👁️';
@@ -2180,8 +2331,16 @@
         }
 
         function removeRoute(index) {
+            // Stop animation if playing
+            if (routes[index].isPlaying) {
+                stopRouteAnimation(index);
+            }
+            
             routes[index].polyline.setMap(null);
             routes[index].startMarker.setMap(null);
+            if (routes[index].animationMarker) {
+                routes[index].animationMarker.setMap(null);
+            }
             routes.splice(index, 1);
             updateFileList();
             
@@ -2195,6 +2354,150 @@
                 map.setZoom(4);
             } else {
                 fitMapToRoutes();
+            }
+        }
+
+        function toggleRouteAnimation(index) {
+            const route = routes[index];
+            
+            if (route.isPlaying) {
+                stopRouteAnimation(index);
+            } else {
+                startRouteAnimation(index);
+            }
+            
+            updateFileList();
+        }
+
+        function startRouteAnimation(index) {
+            const route = routes[index];
+            
+            // Can't animate without timestamps
+            if (!route.timestamps || route.timestamps.length === 0) {
+                alert('No timestamp data available for animation');
+                return;
+            }
+            
+            // Create animation marker if it doesn't exist
+            if (!route.animationMarker) {
+                route.animationMarker = new google.maps.Marker({
+                    position: route.coordinates[0],
+                    map: map,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 8,
+                        fillColor: route.color,
+                        fillOpacity: 1,
+                        strokeColor: 'white',
+                        strokeWeight: 3
+                    },
+                    zIndex: 2000
+                });
+                console.log('Created new animation marker at', route.coordinates[0]);
+            } else {
+                route.animationMarker.setPosition(route.coordinates[0]);
+                route.animationMarker.setMap(map);
+                console.log('Reusing existing animation marker');
+            }
+            
+            route.isPlaying = true;
+            
+            // Initialize animation state
+            if (typeof window.playingRoutes === 'undefined') {
+                console.error('ERROR: playingRoutes is not defined!');
+                window.playingRoutes = {};
+            }
+            
+            window.playingRoutes[index] = {
+                currentIndex: 0,
+                startTime: Date.now(),
+                pauseTime: 0
+            };
+            
+            console.log('Animation state initialized:', window.playingRoutes[index]);
+            
+            animateRoute(index);
+
+            document.getElementById('playbackControls').classList.add('show');
+        }
+
+        function stopRouteAnimation(index) {
+            const route = routes[index];
+            
+            route.isPlaying = false;
+            
+            if (route.animationMarker) {
+                route.animationMarker.setMap(null);
+            }
+            
+            if (playingRoutes[index]) {
+                delete playingRoutes[index];
+            }
+
+            const anyRoutePlaying = routes.some(r => r.isPlaying);
+            if (!anyRoutePlaying) {
+                document.getElementById('playbackControls').classList.remove('show');
+            }
+        }
+
+        function animateRoute(index) {
+            const route = routes[index];
+            const state = playingRoutes[index];
+            
+            if (!route.isPlaying || !state) {
+                console.log('Animation stopped: isPlaying=' + route.isPlaying + ', state exists=' + !!state);
+                return;
+            }
+            
+            // Calculate elapsed time
+            const elapsedMs = (Date.now() - state.startTime) * window.playbackSpeed;
+            
+            // Find the coordinate index based on elapsed time
+            const firstValidTimestamp = route.timestamps.find(t => t !== null);
+            if (!firstValidTimestamp) {
+                console.error('No valid timestamps found during animation');
+                stopRouteAnimation(index);
+                return;
+            }
+            
+            const startTimestamp = firstValidTimestamp.getTime();
+            
+            let targetIndex = 0;
+            let matchCount = 0;
+            for (let i = 0; i < route.timestamps.length; i++) {
+                if (route.timestamps[i]) {
+                    const pointTime = route.timestamps[i].getTime() - startTimestamp;
+                    if (pointTime <= elapsedMs) {
+                        targetIndex = i;
+                        matchCount++;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            
+            // Debug logging (log every 100 frames to avoid spam)
+            if (state.currentIndex % 100 === 0) {
+                console.log(`Animation frame: index=${targetIndex}/${route.coordinates.length}, elapsed=${(elapsedMs/1000).toFixed(1)}s, speed=${window.playbackSpeed}x, matchCount=${matchCount}`);
+                // Log time range
+                const lastValidTimestamp = [...route.timestamps].reverse().find(t => t !== null);
+                const totalDuration = lastValidTimestamp ? (lastValidTimestamp.getTime() - startTimestamp) / 1000 : 0;
+                console.log(`  Total activity duration: ${totalDuration.toFixed(1)}s`);
+            }
+            
+            // Update marker position
+            if (targetIndex < route.coordinates.length) {
+                const newPos = route.coordinates[targetIndex];
+                route.animationMarker.setPosition(newPos);
+                state.currentIndex = targetIndex;
+                
+                // Continue animation
+                requestAnimationFrame(() => animateRoute(index));
+            } else {
+                // Animation complete
+                console.log(`Animation complete for ${route.displayName}`);
+                stopRouteAnimation(index);
+                updateFileList();
             }
         }
 
@@ -2237,9 +2540,34 @@
             fileInput.value = '';
         });
 
+        // Compact drop zone (always visible)
+        const compactDropZone = document.getElementById('compactDropZone');
+        const compactFileInput = document.getElementById('compactFileInput');
+
+        compactDropZone.addEventListener('click', () => compactFileInput.click());
+
+        compactDropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            compactDropZone.classList.add('dragover');
+        });
+
+        compactDropZone.addEventListener('dragleave', () => {
+            compactDropZone.classList.remove('dragover');
+        });
+
+        compactDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            compactDropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        compactFileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+            compactFileInput.value = '';
+        });
+
         document.getElementById('compareBtn').addEventListener('click', toggleCompareMode);
 
-        // Sidebar toggle
         document.getElementById('sidebarToggle').addEventListener('click', function() {
             const sidebar = document.getElementById('sidebar');
             const toggle = document.getElementById('sidebarToggle');
@@ -2253,7 +2581,6 @@
                 toggle.title = 'Hide sidebar';
             }
             
-            // Trigger map resize after sidebar animation completes
             setTimeout(() => {
                 google.maps.event.trigger(map, 'resize');
                 if (routes.length > 0) {
@@ -2263,21 +2590,35 @@
         });
 
         window.initMap = initMap;
-        
-        // Debug FitParser loading
-        window.addEventListener('load', function() {
-            console.log('Page loaded, checking FitParser...');
-            console.log('typeof FitParser:', typeof FitParser);
-            console.log('FitParser object:', FitParser);
-            if (typeof FitParser !== 'undefined') {
-                console.log('FitParser keys:', Object.keys(FitParser));
-                console.log('FitParser.default:', FitParser.default);
-                console.log('FitParser constructor:', FitParser.constructor);
-            }
-        });
+
+        // Speed slider with logarithmic scaling (1x to 1000x)
+const speedSlider = document.getElementById('speedSlider');
+const speedDisplay = document.getElementById('speedDisplay');
+
+speedSlider.addEventListener('input', function() {
+    const sliderValue = parseFloat(this.value);
+    // Logarithmic scale: 1x at 0, 1000x at 100
+    const speed = Math.pow(10, sliderValue * 3 / 100); // 0->1, 33.33->10, 66.67->100, 100->1000
+    window.playbackSpeed = speed;
+    
+    // Format display
+    if (speed >= 100) {
+        speedDisplay.textContent = Math.round(speed) + 'x';
+    } else if (speed >= 10) {
+        speedDisplay.textContent = speed.toFixed(0) + 'x';
+    } else {
+        speedDisplay.textContent = speed.toFixed(1) + 'x';
+    }
+    
+    // Update slider background gradient
+    const percentage = (sliderValue / 100) * 100;
+    this.style.background = `linear-gradient(to right, #1a73e8 0%, #1a73e8 ${percentage}%, #e0e0e0 ${percentage}%, #e0e0e0 100%)`;
+});
+
+// Initialize slider appearance
+speedSlider.style.background = 'linear-gradient(to right, #1a73e8 0%, #1a73e8 0%, #e0e0e0 0%, #e0e0e0 100%)';
     </script>
 
-    <!-- Replace YOUR_API_KEY with your actual Google Maps API key -->
     <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDHN981eBYt2fLPZqx-r7iwVVasKfA-738&callback=initMap" async defer></script>
 </body>
 </html>
