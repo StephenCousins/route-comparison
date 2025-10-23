@@ -360,16 +360,23 @@
         }
         #routeTooltip {
             position: absolute;
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 13px;
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 12px;
             pointer-events: none;
             z-index: 1000;
             display: none;
             white-space: nowrap;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(26, 115, 232, 0.2);
+            line-height: 1.6;
+        }
+        #routeTooltip strong {
+            color: #1a73e8;
+            font-weight: 600;
         }
         #chartCrosshair {
             position: fixed;
@@ -1484,6 +1491,50 @@
                 }
             }
             
+            getClosestPointInfo(latLng) {
+                // Find the closest point on the route to the mouse position
+                let minDistance = Infinity;
+                let closestIndex = 0;
+                
+                for (let i = 0; i < this.coordinates.length; i++) {
+                    const coord = this.coordinates[i];
+                    const distance = google.maps.geometry.spherical.computeDistanceBetween(
+                        new google.maps.LatLng(coord.lat, coord.lng),
+                        latLng
+                    );
+                    
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closestIndex = i;
+                    }
+                }
+                
+                // Calculate cumulative distance to this point
+                let distanceToPoint = 0;
+                for (let i = 1; i <= closestIndex; i++) {
+                    const prev = this.coordinates[i - 1];
+                    const curr = this.coordinates[i];
+                    distanceToPoint += google.maps.geometry.spherical.computeDistanceBetween(
+                        new google.maps.LatLng(prev.lat, prev.lng),
+                        new google.maps.LatLng(curr.lat, curr.lng)
+                    );
+                }
+                
+                // Calculate elapsed time to this point
+                let timeToPoint = null;
+                if (this.timestamps.length > closestIndex && this.timestamps[0] && this.timestamps[closestIndex]) {
+                    const startTime = this.timestamps[0];
+                    const currentTime = this.timestamps[closestIndex];
+                    timeToPoint = (currentTime - startTime) / 1000; // in seconds
+                }
+                
+                return {
+                    index: closestIndex,
+                    distance: distanceToPoint, // in meters
+                    time: timeToPoint
+                };
+            }
+            
             destroy() {
                 if (this.polyline) {
                     google.maps.event.clearInstanceListeners(this.polyline);
@@ -1528,8 +1579,17 @@
                 this.map.fitBounds(bounds);
             }
             
-            showTooltip(text, latLng) {
-                this.tooltip.textContent = text;
+            showTooltip(text, latLng, distance, time) {
+                // Build tooltip content
+                let content = `<strong>${text}</strong>`;
+                if (distance !== undefined) {
+                    content += `<br>Distance: ${Utils.formatDistance(distance / 1000)}`; // distance is in meters, formatDistance expects km
+                }
+                if (time !== null && time !== undefined) {
+                    content += `<br>Time: ${Utils.formatDuration(time)}`;
+                }
+                
+                this.tooltip.innerHTML = content;
                 this.tooltip.style.display = 'block';
                 
                 const projection = this.map.getProjection();
@@ -2296,7 +2356,8 @@
                     
                     const extensions = points[i].getElementsByTagName('extensions')[0];
                     heartRates.push(this.extractExtensionValue(extensions, ['tpx1:hr', 'gpxtpx:hr', 'ns3:hr', 'hr', 'heartrate', 'HeartRate']));
-                    cadences.push(this.extractExtensionValue(extensions, ['tpx1:cad', 'gpxtpx:cad', 'ns3:cad', 'cad', 'cadence', 'Cadence', 'RunCadence']));
+                    const cadenceValue = this.extractExtensionValue(extensions, ['tpx1:cad', 'gpxtpx:cad', 'ns3:cad', 'cad', 'cadence', 'Cadence', 'RunCadence']);
+                    cadences.push(cadenceValue !== null && cadenceValue !== undefined ? cadenceValue * 2 : null);
                     powers.push(this.extractExtensionValue(extensions, ['tpx1:power', 'power', 'Power', 'gpxtpx:power', 'ns3:power', 'pwr']));
                 }
                 
@@ -2381,7 +2442,7 @@
                                     elevations.push(record.enhanced_altitude ?? record.altitude ?? null);
                                     timestamps.push(record.timestamp ? new Date(record.timestamp) : null);
                                     heartRates.push(record.heart_rate ?? null);
-                                    cadences.push(record.cadence ?? null);
+                                    cadences.push(record.cadence !== null && record.cadence !== undefined ? record.cadence * 2 : null);
                                     powers.push(record.power ?? null);
                                     
                                     let speedKmh = null;
@@ -2628,8 +2689,14 @@
                 const index = this.routes.length;
                 
                 route.createMapObjects(this.mapManager.map, index, {
-                    onMouseOver: (r, e) => this.mapManager.showTooltip(r.displayName, e.latLng),
-                    onMouseMove: (r, e) => this.mapManager.showTooltip(r.displayName, e.latLng),
+                    onMouseOver: (r, e) => {
+                        const pointInfo = r.getClosestPointInfo(e.latLng);
+                        this.mapManager.showTooltip(r.displayName, e.latLng, pointInfo.distance, pointInfo.time);
+                    },
+                    onMouseMove: (r, e) => {
+                        const pointInfo = r.getClosestPointInfo(e.latLng);
+                        this.mapManager.showTooltip(r.displayName, e.latLng, pointInfo.distance, pointInfo.time);
+                    },
                     onMouseOut: () => this.mapManager.hideTooltip(),
                     onClick: (r) => this.highlightRoute(this.routes.indexOf(r))
                 });
@@ -4833,6 +4900,6 @@
         const app = new RouteOverlayApp();
     </script>
 
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDHN981eBYt2fLPZqx-r7iwVVasKfA-738&callback=initMap" async defer></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDHN981eBYt2fLPZqx-r7iwVVasKfA-738&libraries=geometry&callback=initMap" async defer></script>
 </body>
 </html>
