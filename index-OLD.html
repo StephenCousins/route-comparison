@@ -1,0 +1,2603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPX & FIT Route Overlay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #header {
+            background: #1a73e8;
+            color: white;
+            padding: 12px 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            flex-shrink: 0;
+        }
+        #header h1 {
+            font-size: 20px;
+            font-weight: 500;
+        }
+        #mainContainer {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+        #sidebar {
+            width: 320px;
+            background: #f8f9fa;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            transition: margin-left 0.3s ease;
+            position: relative;
+            z-index: 100;
+        }
+        #sidebar.collapsed {
+            margin-left: -320px;
+        }
+        #sidebarToggle {
+            position: absolute;
+            right: -40px;
+            top: 20px;
+            width: 40px;
+            height: 40px;
+            background: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 0 8px 8px 0;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+            z-index: 101;
+        }
+        #sidebarToggle:hover {
+            background: #1557b0;
+        }
+        #sidebarHeader {
+            padding: 15px;
+            background: white;
+            border-bottom: 1px solid #e0e0e0;
+            flex-shrink: 0;
+        }
+        #sidebarHeader h2 {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        #compareBtn {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            width: 100%;
+            transition: all 0.2s;
+        }
+        #compareBtn:hover {
+            background: #1557b0;
+        }
+        #compareBtn.active {
+            background: #34a853;
+        }       
+        #compactDropZone {
+            border: 2px dashed #ccc;
+            border-radius: 6px;
+            padding: 12px 10px;
+            text-align: center;
+            background: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #compactDropZone.dragover {
+            border-color: #1a73e8;
+            background: #e8f0fe;
+        }
+        #compactDropZone p {
+            color: #5f6368;
+            font-size: 12px;
+            margin: 0;
+        }
+        #compactDropZone input {
+            display: none; 
+        }
+        #compactDropZone.hidden {
+            display: none;
+        }
+        #dropZone {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 30px 20px;
+            margin: 15px;
+            text-align: center;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        #dropZone.dragover {
+            border-color: #1a73e8;
+            background: #e8f0fe;
+        }
+        #dropZone p {
+            color: #5f6368;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        #dropZone input {
+            display: none;
+        }
+        #fileList {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        #fileList::-webkit-scrollbar {
+            width: 8px;
+        }
+        #fileList::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        #fileList::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        #fileList::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .file-item {
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            transition: all 0.2s;
+            cursor: pointer;
+            position: relative;
+        }
+        .file-item:hover {
+            border-color: #1a73e8;
+            box-shadow: 0 2px 8px rgba(26, 115, 232, 0.15);
+        }
+        .file-item.highlighted {
+            border-color: #1a73e8;
+            background: #e8f0fe;
+            box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.3);
+        }
+        .file-item.selected {
+            border-color: #ffc107;
+            background: #fff8e1;
+        }
+        .compare-checkbox {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            display: none;
+        }
+        .compare-mode .compare-checkbox {
+            display: block;
+        }
+        .file-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .file-number {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: white;
+            border: 2px solid #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+        .file-color {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: 2px solid #ddd;
+            flex-shrink: 0;
+        }
+        .file-name-container {
+            flex: 1;
+            margin-bottom: 8px;
+        }
+        .file-display-name {
+            font-size: 14px;
+            font-weight: 600;
+            padding: 4px 6px;
+            border-radius: 4px;
+            width: 100%;
+            border: 1px solid transparent;
+            background: #f8f9fa;
+            word-wrap: break-word;
+            min-height: 28px;
+            display: flex;
+            align-items: center;
+        }
+        .file-display-name:hover {
+            border-color: #e0e0e0;
+        }
+        .file-display-name:focus {
+            outline: none;
+            border-color: #1a73e8;
+            background: white;
+        }
+        .file-original-name {
+            font-size: 10px;
+            color: #666;
+            padding: 2px 4px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .file-stats {
+            background: #f8f9fa;
+            border-radius: 4px;
+            padding: 6px;
+            margin-bottom: 8px;
+            font-size: 11px;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+            border-bottom: 1px solid #e8e8e8;
+        }
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+        .stat-label {
+            color: #666;
+            font-weight: 500;
+        }
+        .stat-value {
+            font-weight: 600;
+            color: #1a73e8;
+        }
+        .metric-selector-container {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 4px;
+            width: 100%;
+        }
+        .metric-dropdown {
+            flex: 1;
+            padding: 6px 8px;
+            border: 1px solid #1a73e8;
+            border-radius: 4px;
+            font-size: 11px;
+            background: white;
+            color: #1a73e8;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .metric-dropdown:hover {
+            background: #e8f0fe;
+        }
+        .show-graph-btn {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .show-graph-btn:hover {
+            background: #1557b0;
+        }
+        .show-graph-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .file-actions {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+        .file-play {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            flex: 1;
+            font-weight: 500;
+        }
+        .file-play:hover {
+            background: #1557b0;
+        }
+        .file-play.playing {
+            background: #ea4335;
+        }
+        .file-toggle {
+            background: #34a853;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            flex: 1;
+            font-weight: 500;
+        }
+        .file-toggle.hidden-route {
+            background: #999;
+        }
+        .file-toggle:hover {
+            opacity: 0.8;
+        }
+        .file-remove {
+            background: #ea4335;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            flex: 1;
+            font-weight: 500;
+        }
+        .file-remove:hover {
+            background: #d33828;
+        }
+        #mapContainer {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+        #map {
+            flex: 1;
+            width: 100%;
+        }
+        .hidden {
+            display: none !important;
+        }
+        #routeTooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+            white-space: nowrap;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        #chartCrosshair {
+            position: fixed;
+            background: rgba(255, 255, 255, 0.95);
+            color: #333;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 9999;
+            display: none;
+            white-space: nowrap;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(26, 115, 232, 0.2);
+            max-width: 300px;
+        }
+        #chartCrosshair .crosshair-distance {
+            font-weight: 600;
+            margin-bottom: 6px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e0e0e0;
+            color: #1a73e8;
+        }
+        #chartCrosshair .crosshair-route {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 0;
+        }
+        #chartCrosshair .crosshair-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+        #chartCrosshair .crosshair-value {
+            font-weight: 600;
+        }
+        #playbackControls {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 150;
+            display: none;
+            align-items: center;
+            gap: 10px;
+        }
+        #playbackControls.show {
+            display: flex;
+        }
+        .speed-btn {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .speed-btn:hover {
+            background: #e8f0fe;
+            border-color: #1a73e8;
+        }
+        .speed-btn.active {
+            background: #1a73e8;
+            color: white;
+            border-color: #1a73e8;
+        }
+        .speed-label {
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        }
+        #comparisonPanel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 2px solid #1a73e8;
+            box-shadow: 0 -4px 12px rgba(0,0,0,0.15);
+            z-index: 200;
+            max-height: 50vh;
+            display: flex;
+            flex-direction: column;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+        }
+        #comparisonPanel.show {
+            transform: translateY(0);
+        }
+        .comparison-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e0e0e0;
+            flex-shrink: 0;
+        }
+        .comparison-header h3 {
+            color: #1a73e8;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .comparison-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .comparison-elevation-btn {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .comparison-elevation-btn:hover {
+            background: #1557b0;
+        }
+        .comparison-elevation-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .comparison-close {
+            background: #ea4335;
+            color: white;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .comparison-close:hover {
+            background: #d33828;
+        }
+        .comparison-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px 20px;
+        }
+        .comparison-content::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .comparison-content::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .comparison-content::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 4px;
+        }
+        .comparison-content::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #5f6368;
+            position: sticky;
+            top: 0;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .route-name-cell {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .route-color-indicator {
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+        #elevationModal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        #elevationModal.show {
+            display: flex;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 90%;
+            width: 1000px;
+            max-height: 85vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .modal-header h2 {
+            font-size: 18px;
+            color: #1a73e8;
+            font-weight: 600;
+        }
+        .modal-close {
+            background: #ea4335;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .modal-close:hover {
+            background: #d33828;
+        }
+        #elevationChart {
+            width: 100%;
+            height: 400px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            cursor: crosshair;
+        }
+        #elevationChart.drag-mode {
+            cursor: grab;
+        }
+        #elevationChart.dragging {
+            cursor: grabbing;
+        }
+        .chart-controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .chart-control-btn {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .chart-control-btn:hover {
+            background: #1557b0;
+        }
+        .chart-control-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .chart-control-btn.active {
+            background: #34a853;
+        }
+        .chart-legend {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            margin-right: 20px;
+            margin-bottom: 5px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        .legend-item:hover {
+            background: #e8f0fe;
+        }
+        .legend-item.active {
+            background: #e8f0fe;
+            box-shadow: 0 0 0 2px #1a73e8;
+        }
+        .legend-color {
+            width: 30px;
+            height: 3px;
+            margin-right: 8px;
+        }
+        .legend-label {
+            font-size: 13px;
+            color: #333;
+        }
+        .legend-offset {
+            font-size: 11px;
+            color: #666;
+            margin-left: 8px;
+            font-style: italic;
+        }
+        #speedSlider {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            border-radius: 3px;
+            background: linear-gradient(to right, #e0e0e0 0%, #1a73e8 0%);
+            outline: none;
+        }
+        #speedSlider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #1a73e8;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        #speedSlider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #1a73e8;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>🗺️ GPX & FIT Route Overlay</h1>
+    </div>
+    <div id="mainContainer">
+        <div id="sidebar">
+            <button id="sidebarToggle" title="Toggle sidebar">◀</button>
+            <div id="sidebarHeader">
+                <h2>📂 Routes</h2>
+                <button id="compareBtn">📊 Compare Routes</button>
+                <div id="compactDropZone" class="hidden">
+                    <p>➕ Add more routes</p>
+                    <input type="file" id="compactFileInput" accept=".gpx,.fit" multiple>
+                </div>
+            </div>
+            <div id="dropZone">
+                <p>📂 Drag and drop GPX or FIT files</p>
+                <p style="font-size: 12px; color: #999;">or click to browse</p>
+                <input type="file" id="fileInput" accept=".gpx,.fit" multiple>
+            </div>
+            <div id="fileList" class="hidden"></div>
+        </div>
+        <div id="mapContainer">
+            <div id="map"></div>
+        </div>
+    </div>
+    <div id="comparisonPanel">
+        <div class="comparison-header">
+            <h3>📊 Route Comparison</h3>
+            <div class="comparison-actions">
+                <button class="comparison-elevation-btn" data-metric="elevation">📈 Elevation</button>
+                <button class="comparison-elevation-btn" data-metric="speed">🏃 Speed</button>
+                <button class="comparison-elevation-btn" data-metric="pace">⏱️ Pace</button>
+                <button class="comparison-elevation-btn" data-metric="heartrate">❤️ Heart Rate</button>
+                <button class="comparison-elevation-btn" data-metric="cadence">👟 Cadence</button>
+                <button class="comparison-elevation-btn" data-metric="power">⚡ Power</button>
+                <button class="comparison-close">Close</button>
+            </div>
+        </div>
+        <div class="comparison-content">
+            <table id="comparisonTableContent"></table>
+        </div>
+    </div>
+    <div id="routeTooltip"></div>
+    <div id="playbackControls">
+        <span class="speed-label">Playback Speed:</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 11px; color: #999;">1x</span>
+            <input type="range" id="speedSlider" min="0" max="100" value="0" style="width: 200px;">
+            <span style="font-size: 11px; color: #999;">1000x</span>
+            <span id="speedDisplay" style="font-size: 13px; font-weight: 600; color: #1a73e8; min-width: 50px;">1x</span>
+        </div>
+    </div>
+    <div id="elevationModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Elevation Profile</h2>
+                <button class="modal-close">Close</button>
+            </div>
+            <canvas id="elevationChart"></canvas>
+            <div class="chart-controls">
+                <button class="chart-control-btn" id="dragModeBtn">✋ Drag to Align</button>
+                <button class="chart-control-btn" id="resetZoomBtn" disabled>🔍 Reset Zoom</button>
+                <button class="chart-control-btn" id="resetOffsetsBtn" disabled>↺ Reset Offsets</button>
+                <span id="zoomInstructions" style="color: #666; font-size: 12px;">Click and drag to zoom into a region</span>
+            </div>
+            <div id="chartLegend" class="chart-legend"></div>
+        </div>
+    </div>
+    <div id="chartCrosshair"></div>
+
+    <script type="module">
+        import FitParserModule from 'https://esm.run/fit-file-parser@1.21.0';
+        window.FitParser = FitParserModule.default || FitParserModule;
+        window.fitParserReady = true;
+        window.dispatchEvent(new Event('fitParserLoaded'));
+    </script>
+
+    <script>
+        // ============================================================================
+        // UTILITY CLASSES AND FUNCTIONS
+        // ============================================================================
+        
+        const Utils = {
+            colors: [
+                '#EA4335', '#4285F4', '#FBBC04', '#34A853', '#FF6D00', '#46BDC6', 
+                '#7B1FA2', '#C2185B', '#00BCD4', '#8BC34A', '#FF5722', '#9C27B0',
+                '#03A9F4', '#FFEB3B', '#E91E63', '#00ACC1', '#7CB342', '#F57C00',
+                '#5E35B1', '#D81B60'
+            ],
+            
+            haversineDistance(coord1, coord2) {
+                const R = 6371;
+                const dLat = this.toRad(coord2.lat - coord1.lat);
+                const dLon = this.toRad(coord2.lng - coord1.lng);
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                          Math.cos(this.toRad(coord1.lat)) * Math.cos(this.toRad(coord2.lat)) *
+                          Math.sin(dLon/2) * Math.sin(dLon/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                return R * c;
+            },
+            
+            toRad(deg) {
+                return deg * (Math.PI / 180);
+            },
+            
+            calculateDistance(coords) {
+                let totalDistance = 0;
+                for (let i = 1; i < coords.length; i++) {
+                    totalDistance += this.haversineDistance(coords[i-1], coords[i]);
+                }
+                return totalDistance;
+            },
+            
+            calculateElevationStats(elevations) {
+                if (!elevations || elevations.length === 0) {
+                    return { gain: 0, loss: 0, min: 0, max: 0 };
+                }
+                let gain = 0, loss = 0;
+                let min = elevations[0], max = elevations[0];
+                for (let i = 1; i < elevations.length; i++) {
+                    const diff = elevations[i] - elevations[i-1];
+                    if (diff > 0) gain += diff;
+                    else loss += Math.abs(diff);
+                    if (elevations[i] < min) min = elevations[i];
+                    if (elevations[i] > max) max = elevations[i];
+                }
+                return { gain, loss, min, max };
+            },
+            
+            formatDistance(km) {
+                return km >= 1 ? `${km.toFixed(2)} km` : `${(km * 1000).toFixed(0)} m`;
+            },
+            
+            formatElevation(m) {
+                return `${Math.round(m)} m`;
+            },
+            
+            formatDuration(minutes) {
+                if (!minutes) return 'N/A';
+                const hours = Math.floor(minutes / 60);
+                const mins = Math.round(minutes % 60);
+                return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+            },
+            
+            formatHeartRate(bpm) {
+                return (!bpm || isNaN(bpm)) ? 'N/A' : `${Math.round(bpm)} bpm`;
+            },
+            
+            formatPace(minPerKm) {
+                if (!minPerKm || isNaN(minPerKm)) return 'N/A';
+                const mins = Math.floor(minPerKm);
+                const secs = Math.round((minPerKm - mins) * 60);
+                return `${mins}:${secs.toString().padStart(2, '0')} /km`;
+            },
+            
+            formatCadence(spm) {
+                return (!spm || isNaN(spm)) ? 'N/A' : `${Math.round(spm)} spm`;
+            },
+            
+            smoothData(data, windowSize = 20) {
+                if (data.length < windowSize) return data;
+                const smoothed = [];
+                for (let i = 0; i < data.length; i++) {
+                    const start = Math.max(0, i - Math.floor(windowSize / 2));
+                    const end = Math.min(data.length, i + Math.floor(windowSize / 2) + 1);
+                    let sum = 0, count = 0;
+                    for (let j = start; j < end; j++) {
+                        if (data[j] !== null && data[j] !== undefined) {
+                            sum += data[j];
+                            count++;
+                        }
+                    }
+                    smoothed.push(count > 0 ? sum / count : data[i]);
+                }
+                return smoothed;
+            },
+            
+            decimateData(data, distances, factor = 20) {
+                if (data.length <= factor * 2) return { data, distances };
+                const decimatedData = [data[0]];
+                const decimatedDistances = [distances[0]];
+                for (let i = factor; i < data.length - 1; i += factor) {
+                    decimatedData.push(data[i]);
+                    decimatedDistances.push(distances[i]);
+                }
+                decimatedData.push(data[data.length - 1]);
+                decimatedDistances.push(distances[distances.length - 1]);
+                return { data: decimatedData, distances: decimatedDistances };
+            },
+            
+            getAdaptiveSmoothingParams(totalDistanceKm) {
+                if (totalDistanceKm < 10) return { windowSize: 50, decimationFactor: 5 };
+                if (totalDistanceKm < 25) return { windowSize: 100, decimationFactor: 10 };
+                if (totalDistanceKm < 50) return { windowSize: 200, decimationFactor: 15 };
+                if (totalDistanceKm < 100) return { windowSize: 300, decimationFactor: 25 };
+                return { windowSize: 500, decimationFactor: 50 };
+            }
+        };
+
+        // ============================================================================
+        // ROUTE CLASS - Encapsulates route data and map objects
+        // ============================================================================
+        
+        class Route {
+            constructor(data) {
+                this.id = Date.now() + Math.random();
+                this.filename = data.filename;
+                this.displayName = data.displayName || data.filename.replace(/\.(gpx|fit)$/i, '').replace(/_/g, ' ');
+                this.color = data.color;
+                this.coordinates = data.coordinates;
+                this.elevations = data.elevations || [];
+                this.heartRates = data.heartRates || [];
+                this.cadences = data.cadences || [];
+                this.powers = data.powers || [];
+                this.speeds = data.speeds || [];
+                this.paces = data.paces || [];
+                this.timestamps = data.timestamps || [];
+                this.stats = data.stats;
+                this.visible = true;
+                this.selected = false;
+                this.isPlaying = false;
+                
+                // Map objects
+                this.polyline = null;
+                this.startMarker = null;
+                this.animationMarker = null;
+                
+                // Animation state
+                this.animationState = null;
+            }
+            
+            createMapObjects(map, index, handlers) {
+                this.polyline = new google.maps.Polyline({
+                    path: this.coordinates,
+                    geodesic: true,
+                    strokeColor: this.color,
+                    strokeOpacity: 1.0,
+                    strokeWeight: 5,
+                    map: map
+                });
+
+                this.startMarker = new google.maps.Marker({
+                    position: this.coordinates[0],
+                    map: map,
+                    label: {
+                        text: String(index + 1),
+                        color: 'white',
+                        fontWeight: 'bold',
+                        fontSize: '12px'
+                    },
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        scale: 12,
+                        fillColor: this.color,
+                        fillOpacity: 1,
+                        strokeColor: 'white',
+                        strokeWeight: 2
+                    },
+                    zIndex: 1000
+                });
+
+                // Attach event handlers
+                this.polyline.addListener('mouseover', (e) => handlers.onMouseOver(this, e));
+                this.polyline.addListener('mousemove', (e) => handlers.onMouseMove(this, e));
+                this.polyline.addListener('mouseout', () => handlers.onMouseOut());
+                this.polyline.addListener('click', () => handlers.onClick(this));
+            }
+            
+            setVisible(visible, map) {
+                this.visible = visible;
+                this.polyline.setMap(visible ? map : null);
+                this.startMarker.setMap(visible ? map : null);
+            }
+            
+            highlight(highlight) {
+                if (highlight) {
+                    this.polyline.setOptions({ strokeWeight: 8, strokeOpacity: 1.0 });
+                } else {
+                    this.polyline.setOptions({ strokeWeight: 5, strokeOpacity: 1.0 });
+                }
+            }
+            
+            destroy() {
+                if (this.polyline) {
+                    google.maps.event.clearInstanceListeners(this.polyline);
+                    this.polyline.setMap(null);
+                    this.polyline = null;
+                }
+                if (this.startMarker) {
+                    this.startMarker.setMap(null);
+                    this.startMarker = null;
+                }
+                if (this.animationMarker) {
+                    this.animationMarker.setMap(null);
+                    this.animationMarker = null;
+                }
+                this.animationState = null;
+            }
+        }
+
+        // ============================================================================
+        // MAP MANAGER - Handles map interactions
+        // ============================================================================
+        
+        class MapManager {
+            constructor(mapElement) {
+                this.map = new google.maps.Map(mapElement, {
+                    center: { lat: 40, lng: -100 },
+                    zoom: 4,
+                    mapTypeControl: true,
+                    streetViewControl: false
+                });
+                this.tooltip = document.getElementById('routeTooltip');
+            }
+            
+            fitToRoutes(routes) {
+                const visibleRoutes = routes.filter(r => r.visible);
+                if (visibleRoutes.length === 0) return;
+                
+                const bounds = new google.maps.LatLngBounds();
+                visibleRoutes.forEach(route => {
+                    route.coordinates.forEach(coord => bounds.extend(coord));
+                });
+                this.map.fitBounds(bounds);
+            }
+            
+            showTooltip(text, latLng) {
+                this.tooltip.textContent = text;
+                this.tooltip.style.display = 'block';
+                
+                const projection = this.map.getProjection();
+                const point = projection.fromLatLngToPoint(latLng);
+                const scale = Math.pow(2, this.map.getZoom());
+                const pixelOffset = new google.maps.Point(
+                    Math.floor(point.x * scale),
+                    Math.floor(point.y * scale)
+                );
+                
+                const bounds = this.map.getBounds();
+                const ne = bounds.getNorthEast();
+                const sw = bounds.getSouthWest();
+                const topRight = projection.fromLatLngToPoint(ne);
+                const bottomLeft = projection.fromLatLngToPoint(sw);
+                
+                const x = (pixelOffset.x - bottomLeft.x * scale);
+                const y = (pixelOffset.y - topRight.y * scale);
+                
+                const mapDiv = document.getElementById('map');
+                const rect = mapDiv.getBoundingClientRect();
+                
+                this.tooltip.style.left = (rect.left + x + 10) + 'px';
+                this.tooltip.style.top = (rect.top + y - 30) + 'px';
+            }
+            
+            hideTooltip() {
+                this.tooltip.style.display = 'none';
+            }
+        }
+
+        // ============================================================================
+        // ANIMATION MANAGER - Handles route playback
+        // ============================================================================
+        
+        class AnimationManager {
+            constructor(mapManager) {
+                this.mapManager = mapManager;
+                this.playbackSpeed = 1;
+                this.activeAnimations = new Map();
+                this.setupSpeedControl();
+            }
+            
+            setupSpeedControl() {
+                const slider = document.getElementById('speedSlider');
+                const display = document.getElementById('speedDisplay');
+                
+                slider.addEventListener('input', () => {
+                    const sliderValue = parseFloat(slider.value);
+                    this.playbackSpeed = Math.pow(10, sliderValue * 3 / 100);
+                    
+                    if (this.playbackSpeed >= 100) {
+                        display.textContent = Math.round(this.playbackSpeed) + 'x';
+                    } else if (this.playbackSpeed >= 10) {
+                        display.textContent = this.playbackSpeed.toFixed(0) + 'x';
+                    } else {
+                        display.textContent = this.playbackSpeed.toFixed(1) + 'x';
+                    }
+                    
+                    const percentage = (sliderValue / 100) * 100;
+                    slider.style.background = `linear-gradient(to right, #1a73e8 0%, #1a73e8 ${percentage}%, #e0e0e0 ${percentage}%, #e0e0e0 100%)`;
+                });
+            }
+            
+            start(route) {
+                if (!route.timestamps || route.timestamps.length === 0) {
+                    alert('No timestamp data available for animation');
+                    return false;
+                }
+                
+                if (!route.animationMarker) {
+                    route.animationMarker = new google.maps.Marker({
+                        position: route.coordinates[0],
+                        map: this.mapManager.map,
+                        icon: {
+                            path: google.maps.SymbolPath.CIRCLE,
+                            scale: 8,
+                            fillColor: route.color,
+                            fillOpacity: 1,
+                            strokeColor: 'white',
+                            strokeWeight: 3
+                        },
+                        zIndex: 2000
+                    });
+                } else {
+                    route.animationMarker.setPosition(route.coordinates[0]);
+                    route.animationMarker.setMap(this.mapManager.map);
+                }
+                
+                route.isPlaying = true;
+                route.animationState = {
+                    currentIndex: 0,
+                    startTime: Date.now(),
+                    pauseTime: 0
+                };
+                
+                this.activeAnimations.set(route.id, route);
+                this.animate(route);
+                
+                document.getElementById('playbackControls').classList.add('show');
+                return true;
+            }
+            
+            stop(route) {
+                route.isPlaying = false;
+                if (route.animationMarker) {
+                    route.animationMarker.setMap(null);
+                }
+                route.animationState = null;
+                this.activeAnimations.delete(route.id);
+                
+                if (this.activeAnimations.size === 0) {
+                    document.getElementById('playbackControls').classList.remove('show');
+                }
+            }
+            
+            animate(route) {
+                if (!route.isPlaying || !route.animationState) return;
+                
+                const state = route.animationState;
+                const elapsedMs = (Date.now() - state.startTime) * this.playbackSpeed;
+                
+                const firstValidTimestamp = route.timestamps.find(t => t !== null);
+                if (!firstValidTimestamp) {
+                    this.stop(route);
+                    return;
+                }
+                
+                const startTimestamp = firstValidTimestamp.getTime();
+                let targetIndex = 0;
+                
+                for (let i = 0; i < route.timestamps.length; i++) {
+                    if (route.timestamps[i]) {
+                        const pointTime = route.timestamps[i].getTime() - startTimestamp;
+                        if (pointTime <= elapsedMs) {
+                            targetIndex = i;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                
+                if (targetIndex < route.coordinates.length) {
+                    route.animationMarker.setPosition(route.coordinates[targetIndex]);
+                    state.currentIndex = targetIndex;
+                    requestAnimationFrame(() => this.animate(route));
+                } else {
+                    this.stop(route);
+                }
+            }
+            
+            destroy() {
+                this.activeAnimations.forEach(route => this.stop(route));
+                this.activeAnimations.clear();
+            }
+        }
+
+        // ============================================================================
+        // CHART MANAGER - Handles elevation/metric charts
+        // ============================================================================
+        
+        class ChartManager {
+            constructor() {
+                this.canvas = document.getElementById('elevationChart');
+                this.ctx = this.canvas.getContext('2d');
+                this.modal = document.getElementById('elevationModal');
+                this.crosshair = document.getElementById('chartCrosshair');
+                
+                this.currentData = null;
+                this.zoomState = null;
+                this.dragMode = false;
+                this.selectedRouteForDrag = null;
+                this.routeOffsets = {};
+                
+                this.isDragging = false;
+                this.isSelecting = false;
+                this.dragStartX = null;
+                this.dragStartOffset = 0;
+                this.selectionStart = null;
+                this.animationFrameId = null;
+                this.originalImage = null;
+                
+                this.setupEventListeners();
+            }
+            
+            setupEventListeners() {
+                // Modal close
+                this.modal.querySelector('.modal-close').addEventListener('click', () => this.close());
+                
+                // Chart controls
+                document.getElementById('dragModeBtn').addEventListener('click', () => this.toggleDragMode());
+                document.getElementById('resetZoomBtn').addEventListener('click', () => this.resetZoom());
+                document.getElementById('resetOffsetsBtn').addEventListener('click', () => this.resetOffsets());
+                
+                // Canvas interactions
+                this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
+                this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+                this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+                this.canvas.addEventListener('mouseleave', () => this.handleMouseLeave());
+                this.canvas.addEventListener('mouseenter', () => this.handleMouseEnter());
+            }
+            
+            show(routes, metricType, yAxisLabel, formatValue) {
+                document.getElementById('modalTitle').textContent = 
+                    `${yAxisLabel.split('(')[0].trim()} ${routes.length > 1 ? `Comparison (${routes.length} routes)` : `Profile: ${routes[0].displayName}`}`;
+                this.modal.classList.add('show');
+                this.drawChart(routes, metricType, yAxisLabel, formatValue);
+            }
+            
+            close() {
+                this.modal.classList.remove('show');
+                this.zoomState = null;
+                this.currentData = null;
+                this.dragMode = false;
+                this.selectedRouteForDrag = null;
+                this.routeOffsets = {};
+                this.isDragging = false;
+                this.isSelecting = false;
+                this.originalImage = null;
+                
+                document.getElementById('resetZoomBtn').disabled = true;
+                document.getElementById('resetOffsetsBtn').disabled = true;
+                document.getElementById('dragModeBtn').classList.remove('active');
+                document.getElementById('dragModeBtn').textContent = '✋ Drag to Align';
+                
+                if (this.animationFrameId) {
+                    cancelAnimationFrame(this.animationFrameId);
+                    this.animationFrameId = null;
+                }
+            }
+            
+            toggleDragMode() {
+                this.dragMode = !this.dragMode;
+                const btn = document.getElementById('dragModeBtn');
+                const instructions = document.getElementById('zoomInstructions');
+                
+                if (this.dragMode) {
+                    btn.classList.add('active');
+                    btn.textContent = '✋ Drag Mode Active';
+                    this.canvas.classList.add('drag-mode');
+                    instructions.textContent = 'Click a route in the legend, then drag it horizontally to align';
+                } else {
+                    btn.classList.remove('active');
+                    btn.textContent = '✋ Drag to Align';
+                    this.canvas.classList.remove('drag-mode');
+                    this.selectedRouteForDrag = null;
+                    instructions.textContent = 'Click and drag to zoom into a region';
+                }
+                this.updateLegend();
+            }
+            
+            resetZoom() {
+                this.zoomState = null;
+                document.getElementById('resetZoomBtn').disabled = true;
+                if (this.currentData) {
+                    this.drawChart(
+                        this.currentData.routes,
+                        this.currentData.metricType,
+                        this.currentData.yAxisLabel,
+                        this.currentData.formatValue
+                    );
+                }
+            }
+            
+            resetOffsets() {
+                this.routeOffsets = {};
+                document.getElementById('resetOffsetsBtn').disabled = true;
+                if (this.currentData) {
+                    this.drawChart(
+                        this.currentData.routes,
+                        this.currentData.metricType,
+                        this.currentData.yAxisLabel,
+                        this.currentData.formatValue
+                    );
+                }
+            }
+            
+            handleMouseDown(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const chartWidth = this.canvas.width - 140;
+                
+                if (x >= 70 && x <= 70 + chartWidth) {
+                    if (this.dragMode && this.selectedRouteForDrag !== null) {
+                        this.isDragging = true;
+                        this.dragStartX = x;
+                        const routeId = this.currentData.routes[this.selectedRouteForDrag].filename;
+                        this.dragStartOffset = this.routeOffsets[routeId] || 0;
+                        this.canvas.classList.add('dragging');
+                    } else if (!this.dragMode) {
+                        this.isSelecting = true;
+                        const y = e.clientY - rect.top;
+                        this.selectionStart = { x, y };
+                    }
+                }
+            }
+            
+            handleMouseMove(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                const chartWidth = this.canvas.width - 140;
+                const chartHeight = this.canvas.height - 120;
+                
+                if (this.isDragging && this.selectedRouteForDrag !== null) {
+                    const pixelDiff = x - this.dragStartX;
+                    const maxDistance = Math.max(...this.currentData.routes.map(r => {
+                        const offset = this.routeOffsets[r.filename] || 0;
+                        return r.stats.distance + offset;
+                    }));
+                    const distanceDiff = (pixelDiff / chartWidth) * maxDistance;
+                    const routeId = this.currentData.routes[this.selectedRouteForDrag].filename;
+                    this.routeOffsets[routeId] = this.dragStartOffset + distanceDiff;
+                    
+                    document.getElementById('resetOffsetsBtn').disabled = false;
+                    
+                    if (!this.animationFrameId) {
+                        this.animationFrameId = requestAnimationFrame(() => {
+                            if (this.currentData) {
+                                this.drawChart(
+                                    this.currentData.routes,
+                                    this.currentData.metricType,
+                                    this.currentData.yAxisLabel,
+                                    this.currentData.formatValue
+                                );
+                            }
+                            this.animationFrameId = null;
+                        });
+                    }
+                } else if (this.isSelecting && this.selectionStart) {
+                    if (this.currentData) {
+                        this.drawChart(
+                            this.currentData.routes,
+                            this.currentData.metricType,
+                            this.currentData.yAxisLabel,
+                            this.currentData.formatValue
+                        );
+                        
+                        const startX = Math.min(this.selectionStart.x, x);
+                        const startY = Math.min(this.selectionStart.y, y);
+                        const width = Math.abs(x - this.selectionStart.x);
+                        const height = Math.abs(y - this.selectionStart.y);
+                        
+                        this.ctx.strokeStyle = '#1a73e8';
+                        this.ctx.fillStyle = 'rgba(26, 115, 232, 0.1)';
+                        this.ctx.lineWidth = 2;
+                        this.ctx.strokeRect(startX, startY, width, height);
+                        this.ctx.fillRect(startX, startY, width, height);
+                    }
+                } else if (!this.isDragging && !this.isSelecting && this.originalImage) {
+                    // Crosshair
+                    if (x < 70 || x > 70 + chartWidth || y < 50 || y > 50 + chartHeight) {
+                        this.crosshair.style.display = 'none';
+                        this.ctx.putImageData(this.originalImage, 0, 0);
+                        return;
+                    }
+                    
+                    this.ctx.putImageData(this.originalImage, 0, 0);
+                    
+                    this.ctx.strokeStyle = 'rgba(26, 115, 232, 0.8)';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.setLineDash([5, 5]);
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, 50);
+                    this.ctx.lineTo(x, 50 + chartHeight);
+                    this.ctx.stroke();
+                    this.ctx.setLineDash([]);
+                    
+                    this.updateCrosshair(x, e.clientX, e.clientY, chartWidth);
+                }
+            }
+            
+            handleMouseUp(e) {
+                if (this.isDragging) {
+                    this.isDragging = false;
+                    this.canvas.classList.remove('dragging');
+                    if (this.animationFrameId) {
+                        cancelAnimationFrame(this.animationFrameId);
+                        this.animationFrameId = null;
+                    }
+                    if (this.currentData) {
+                        this.drawChart(
+                            this.currentData.routes,
+                            this.currentData.metricType,
+                            this.currentData.yAxisLabel,
+                            this.currentData.formatValue
+                        );
+                    }
+                } else if (this.isSelecting && this.selectionStart) {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const chartWidth = this.canvas.width - 140;
+                    
+                    const startX = Math.min(this.selectionStart.x, x);
+                    const endX = Math.max(this.selectionStart.x, x);
+                    
+                    if (Math.abs(endX - startX) > 20) {
+                        const maxDistance = Math.max(...this.currentData.routes.map(r => {
+                            const offset = this.routeOffsets[r.filename] || 0;
+                            return r.stats.distance + offset;
+                        }));
+                        
+                        const minDistance = ((startX - 70) / chartWidth) * maxDistance;
+                        const maxDistanceZoom = ((endX - 70) / chartWidth) * maxDistance;
+                        
+                        this.zoomState = {
+                            minDistance: Math.max(0, minDistance),
+                            maxDistance: Math.min(maxDistance, maxDistanceZoom)
+                        };
+                        
+                        document.getElementById('resetZoomBtn').disabled = false;
+                        
+                        if (this.currentData) {
+                            this.drawChart(
+                                this.currentData.routes,
+                                this.currentData.metricType,
+                                this.currentData.yAxisLabel,
+                                this.currentData.formatValue
+                            );
+                        }
+                    }
+                }
+                
+                this.isSelecting = false;
+                this.selectionStart = null;
+            }
+            
+            handleMouseLeave() {
+                if (this.isDragging) {
+                    this.isDragging = false;
+                    this.canvas.classList.remove('dragging');
+                    if (this.animationFrameId) {
+                        cancelAnimationFrame(this.animationFrameId);
+                        this.animationFrameId = null;
+                    }
+                }
+                this.isSelecting = false;
+                this.selectionStart = null;
+                this.crosshair.style.display = 'none';
+            }
+            
+            handleMouseEnter() {
+                if (this.currentData) {
+                    this.originalImage = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                }
+            }
+            
+            updateCrosshair(x, clientX, clientY, chartWidth) {
+                if (!this.currentData) return;
+                
+                const maxDist = this.zoomState ? 
+                    (this.zoomState.maxDistance - this.zoomState.minDistance) :
+                    Math.max(...this.currentData.routes.map(r => {
+                        const offset = this.routeOffsets[r.filename] || 0;
+                        return r.stats.distance + offset;
+                    }));
+                
+                const mouseDistance = ((x - 70) / chartWidth) * maxDist;
+                
+                let tooltipHTML = `<div class="crosshair-distance">🗺️ ${Utils.formatDistance(mouseDistance)}</div>`;
+                let foundData = false;
+                
+                this.currentData.processedRoutes.forEach(route => {
+                    let closestIdx = -1;
+                    let closestDiff = Infinity;
+                    
+                    for (let i = 0; i < route.cumulativeDistances.length; i++) {
+                        const diff = Math.abs(route.cumulativeDistances[i] - mouseDistance);
+                        if (diff < closestDiff) {
+                            closestDiff = diff;
+                            closestIdx = i;
+                        }
+                    }
+                    
+                    if (closestIdx >= 0 && closestIdx < route.metricData.length) {
+                        const value = route.metricData[closestIdx];
+                        if (value !== null && value !== undefined) {
+                            foundData = true;
+                            tooltipHTML += `
+                                <div class="crosshair-route">
+                                    <div class="crosshair-color" style="background: ${route.color}"></div>
+                                    <span>${route.displayName}:</span>
+                                    <span class="crosshair-value">${this.currentData.formatValue(value)}</span>
+                                </div>
+                            `;
+                        }
+                    }
+                });
+                
+                if (foundData) {
+                    this.crosshair.innerHTML = tooltipHTML;
+                    this.crosshair.style.display = 'block';
+                    this.crosshair.style.left = (clientX + 15) + 'px';
+                    this.crosshair.style.top = (clientY + 15) + 'px';
+                    
+                    setTimeout(() => {
+                        const rect = this.crosshair.getBoundingClientRect();
+                        if (rect.right > window.innerWidth) {
+                            this.crosshair.style.left = (clientX - rect.width - 15) + 'px';
+                        }
+                        if (rect.bottom > window.innerHeight) {
+                            this.crosshair.style.top = (clientY - rect.height - 15) + 'px';
+                        }
+                    }, 0);
+                } else {
+                    this.crosshair.style.display = 'none';
+                }
+            }
+            
+            drawChart(routes, metricType, yAxisLabel, formatValue) {
+                this.currentData = { routes, metricType, yAxisLabel, formatValue, processedRoutes: [] };
+                
+                this.canvas.width = this.canvas.offsetWidth;
+                this.canvas.height = this.canvas.offsetHeight;
+                
+                const padding = { left: 70, right: 70, top: 50, bottom: 70 };
+                const chartWidth = this.canvas.width - padding.left - padding.right;
+                const chartHeight = this.canvas.height - padding.top - padding.bottom;
+                
+                // Process route data
+                const processedRoutes = routes.map(route => {
+                    const distances = [0];
+                    for (let i = 1; i < route.coordinates.length; i++) {
+                        distances.push(distances[i-1] + Utils.haversineDistance(route.coordinates[i-1], route.coordinates[i]));
+                    }
+                    
+                    let metricData = [];
+                    switch(metricType) {
+                        case 'elevation': metricData = route.elevations; break;
+                        case 'speed': metricData = route.speeds; break;
+                        case 'pace': metricData = route.paces; break;
+                        case 'heartrate': metricData = route.heartRates; break;
+                        case 'cadence': metricData = route.cadences; break;
+                        case 'power': metricData = route.powers; break;
+                    }
+                    
+                    const totalDist = distances[distances.length - 1];
+                    const { windowSize, decimationFactor } = Utils.getAdaptiveSmoothingParams(totalDist);
+                    const smoothed = Utils.smoothData(metricData, windowSize);
+                    const { data: finalData, distances: finalDistances } = Utils.decimateData(smoothed, distances, decimationFactor);
+                    
+                    const offset = this.routeOffsets[route.filename] || 0;
+                    return {
+                        ...route,
+                        cumulativeDistances: finalDistances.map(d => d + offset),
+                        metricData: finalData,
+                        totalDistance: totalDist
+                    };
+                });
+                
+                this.currentData.processedRoutes = processedRoutes;
+                
+                // Apply zoom if active
+                let chartRoutes = processedRoutes;
+                if (this.zoomState) {
+                    chartRoutes = processedRoutes.map(route => ({
+                        ...route,
+                        metricData: route.metricData.filter((_, i) => {
+                            const dist = route.cumulativeDistances[i];
+                            return dist >= this.zoomState.minDistance && dist <= this.zoomState.maxDistance;
+                        }),
+                        cumulativeDistances: route.cumulativeDistances
+                            .filter(d => d >= this.zoomState.minDistance && d <= this.zoomState.maxDistance)
+                            .map(d => d - this.zoomState.minDistance)
+                    }));
+                }
+                
+                // Calculate ranges
+                let globalMin = Infinity, globalMax = -Infinity, maxDistance = 0;
+                chartRoutes.forEach(route => {
+                    if (route.metricData.length > 0) {
+                        globalMin = Math.min(globalMin, ...route.metricData);
+                        globalMax = Math.max(globalMax, ...route.metricData);
+                    }
+                    maxDistance = Math.max(maxDistance, ...route.cumulativeDistances);
+                });
+                
+                const range = globalMax - globalMin;
+                globalMin -= range * 0.1;
+                globalMax += range * 0.1;
+                const adjustedRange = globalMax - globalMin;
+                
+                // Clear canvas
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Draw grid
+                this.ctx.strokeStyle = '#e0e0e0';
+                this.ctx.lineWidth = 1;
+                for (let i = 0; i <= 5; i++) {
+                    const y = padding.top + (chartHeight / 5) * i;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(padding.left, y);
+                    this.ctx.lineTo(padding.left + chartWidth, y);
+                    this.ctx.stroke();
+                    
+                    const value = globalMax - (adjustedRange / 5) * i;
+                    this.ctx.fillStyle = '#666';
+                    this.ctx.font = '11px sans-serif';
+                    this.ctx.textAlign = 'right';
+                    this.ctx.fillText(formatValue(value).split(' ')[0], padding.left - 8, y + 4);
+                }
+                
+                for (let i = 0; i <= 10; i++) {
+                    const x = padding.left + (chartWidth / 10) * i;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, padding.top);
+                    this.ctx.lineTo(x, padding.top + chartHeight);
+                    this.ctx.stroke();
+                    
+                    const dist = (maxDistance / 10) * i;
+                    this.ctx.fillStyle = '#666';
+                    this.ctx.font = '11px sans-serif';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.fillText(Utils.formatDistance(dist), x, this.canvas.height - padding.bottom + 20);
+                }
+                
+                // Draw routes
+                chartRoutes.forEach(route => {
+                    if (routes.length === 1) {
+                        // Fill area for single route
+                        this.ctx.strokeStyle = route.color;
+                        this.ctx.fillStyle = route.color + '25';
+                        this.ctx.lineWidth = 1.5;
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(padding.left, this.canvas.height - padding.bottom);
+                        
+                        for (let i = 0; i < route.metricData.length; i++) {
+                            if (route.metricData[i] !== null) {
+                                const x = padding.left + (route.cumulativeDistances[i] / maxDistance) * chartWidth;
+                                const y = padding.top + chartHeight - ((route.metricData[i] - globalMin) / adjustedRange) * chartHeight;
+                                this.ctx.lineTo(x, y);
+                            }
+                        }
+                        
+                        const lastX = padding.left + (route.cumulativeDistances[route.cumulativeDistances.length - 1] / maxDistance) * chartWidth;
+                        this.ctx.lineTo(lastX, this.canvas.height - padding.bottom);
+                        this.ctx.closePath();
+                        this.ctx.fill();
+                    }
+                    
+                    // Draw line
+                    this.ctx.strokeStyle = route.color;
+                    this.ctx.lineWidth = 1.5;
+                    this.ctx.globalAlpha = 0.9;
+                    this.ctx.beginPath();
+                    
+                    let firstPoint = true;
+                    for (let i = 0; i < route.metricData.length; i++) {
+                        if (route.metricData[i] !== null) {
+                            const x = padding.left + (route.cumulativeDistances[i] / maxDistance) * chartWidth;
+                            const y = padding.top + chartHeight - ((route.metricData[i] - globalMin) / adjustedRange) * chartHeight;
+                            if (firstPoint) {
+                                this.ctx.moveTo(x, y);
+                                firstPoint = false;
+                            } else {
+                                this.ctx.lineTo(x, y);
+                            }
+                        }
+                    }
+                    this.ctx.stroke();
+                    this.ctx.globalAlpha = 1.0;
+                });
+                
+                // Draw axes
+                this.ctx.strokeStyle = '#333';
+                this.ctx.lineWidth = 2;
+                this.ctx.beginPath();
+                this.ctx.moveTo(padding.left, padding.top);
+                this.ctx.lineTo(padding.left, padding.top + chartHeight);
+                this.ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
+                this.ctx.stroke();
+                
+                // Labels
+                this.ctx.save();
+                this.ctx.translate(20, this.canvas.height / 2);
+                this.ctx.rotate(-Math.PI / 2);
+                this.ctx.fillStyle = '#666';
+                this.ctx.font = '14px sans-serif';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(yAxisLabel, 0, 0);
+                this.ctx.restore();
+                
+                this.ctx.fillStyle = '#333';
+                this.ctx.font = '14px sans-serif';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('Distance', this.canvas.width / 2, this.canvas.height - 10);
+                
+                this.updateLegend();
+                this.originalImage = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+            }
+            
+            updateLegend() {
+                if (!this.currentData) return;
+                
+                const legend = document.getElementById('chartLegend');
+                legend.innerHTML = '';
+                
+                this.currentData.routes.forEach((route, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'legend-item';
+                    if (this.selectedRouteForDrag === index) item.classList.add('active');
+                    
+                    const color = document.createElement('div');
+                    color.className = 'legend-color';
+                    color.style.background = route.color;
+                    
+                    const label = document.createElement('span');
+                    label.className = 'legend-label';
+                    label.textContent = `${route.displayName} (${Utils.formatDistance(route.stats.distance)})`;
+                    
+                    const offset = this.routeOffsets[route.filename] || 0;
+                    if (Math.abs(offset) > 0.01) {
+                        const offsetSpan = document.createElement('span');
+                        offsetSpan.className = 'legend-offset';
+                        offsetSpan.textContent = offset >= 0 ? `+${Utils.formatDistance(offset)}` : Utils.formatDistance(offset);
+                        label.appendChild(offsetSpan);
+                    }
+                    
+                    item.appendChild(color);
+                    item.appendChild(label);
+                    
+                    if (this.dragMode) {
+                        item.style.cursor = 'pointer';
+                        item.onclick = () => {
+                            this.selectedRouteForDrag = this.selectedRouteForDrag === index ? null : index;
+                            this.updateLegend();
+                        };
+                    }
+                    
+                    legend.appendChild(item);
+                });
+            }
+        }
+
+        // ============================================================================
+        // FILE PARSER - Handles GPX and FIT file parsing
+        // ============================================================================
+        
+        class FileParser {
+            static parseGPX(xmlString, color, filename) {
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(xmlString, 'text/xml');
+                
+                if (xml.getElementsByTagName('parsererror').length > 0) {
+                    throw new Error('Invalid XML');
+                }
+                
+                const coordinates = [], elevations = [], timestamps = [];
+                const heartRates = [], cadences = [], powers = [];
+                
+                const trkpts = xml.getElementsByTagName('trkpt');
+                const points = trkpts.length > 0 ? trkpts : xml.getElementsByTagName('rtept');
+                
+                for (let i = 0; i < points.length; i++) {
+                    const lat = parseFloat(points[i].getAttribute('lat'));
+                    const lon = parseFloat(points[i].getAttribute('lon'));
+                    coordinates.push({ lat, lng: lon });
+                    
+                    const eleNode = points[i].getElementsByTagName('ele')[0];
+                    elevations.push(eleNode ? parseFloat(eleNode.textContent) : null);
+                    
+                    const timeNode = points[i].getElementsByTagName('time')[0];
+                    timestamps.push(timeNode ? new Date(timeNode.textContent) : null);
+                    
+                    const extensions = points[i].getElementsByTagName('extensions')[0];
+                    heartRates.push(this.extractExtensionValue(extensions, ['tpx1:hr', 'gpxtpx:hr', 'ns3:hr', 'hr', 'heartrate', 'HeartRate']));
+                    cadences.push(this.extractExtensionValue(extensions, ['tpx1:cad', 'gpxtpx:cad', 'ns3:cad', 'cad', 'cadence', 'Cadence', 'RunCadence']));
+                    powers.push(this.extractExtensionValue(extensions, ['tpx1:power', 'power', 'Power', 'gpxtpx:power', 'ns3:power', 'pwr']));
+                }
+                
+                if (coordinates.length === 0) {
+                    throw new Error('No track points found');
+                }
+                
+                // Calculate speeds and paces
+                const speeds = [], paces = [];
+                for (let i = 0; i < coordinates.length; i++) {
+                    if (i === 0 || !timestamps[i] || !timestamps[i-1]) {
+                        speeds.push(null);
+                        paces.push(null);
+                    } else {
+                        const dist = Utils.haversineDistance(coordinates[i-1], coordinates[i]);
+                        const timeDiff = (timestamps[i] - timestamps[i-1]) / 1000 / 3600;
+                        if (timeDiff > 0 && dist > 0) {
+                            const speed = dist / timeDiff;
+                            speeds.push(speed);
+                            paces.push(60 / speed);
+                        } else {
+                            speeds.push(null);
+                            paces.push(null);
+                        }
+                    }
+                }
+                
+                return this.createRouteData(filename, color, coordinates, elevations, timestamps, 
+                    heartRates, cadences, powers, speeds, paces);
+            }
+            
+            static extractExtensionValue(extensions, tagNames) {
+                if (!extensions) return null;
+                for (let tagName of tagNames) {
+                    const node = extensions.getElementsByTagName(tagName)[0];
+                    if (node && node.textContent) {
+                        const value = parseFloat(node.textContent);
+                        if (!isNaN(value)) return value;
+                    }
+                }
+                return null;
+            }
+            
+            static parseFIT(arrayBuffer, color, filename) {
+                return new Promise((resolve, reject) => {
+                    if (!window.FitParser) {
+                        reject(new Error('FIT parser not loaded'));
+                        return;
+                    }
+                    
+                    const fitParser = new FitParser({
+                        force: true,
+                        speedUnit: 'km/h',
+                        lengthUnit: 'm',
+                        temperatureUnit: 'celsius',
+                        elapsedRecordField: true,
+                        mode: 'list'
+                    });
+                    
+                    fitParser.parse(arrayBuffer, (error, data) => {
+                        if (error) {
+                            reject(error);
+                            return;
+                        }
+                        
+                        const records = data.records || [];
+                        if (records.length === 0) {
+                            reject(new Error('No data points found'));
+                            return;
+                        }
+                        
+                        const coordinates = [], elevations = [], timestamps = [];
+                        const heartRates = [], cadences = [], powers = [], speeds = [], paces = [];
+                        
+                        records.forEach(record => {
+                            if (record.position_lat !== undefined && record.position_long !== undefined) {
+                                const lat = record.position_lat;
+                                const lng = record.position_long;
+                                
+                                if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+                                    coordinates.push({ lat, lng });
+                                    elevations.push(record.enhanced_altitude ?? record.altitude ?? null);
+                                    timestamps.push(record.timestamp ? new Date(record.timestamp) : null);
+                                    heartRates.push(record.heart_rate ?? null);
+                                    cadences.push(record.cadence ?? null);
+                                    powers.push(record.power ?? null);
+                                    
+                                    let speedKmh = null;
+                                    if (record.enhanced_speed !== undefined) {
+                                        speedKmh = record.enhanced_speed * 3.6;
+                                    } else if (record.speed !== undefined) {
+                                        speedKmh = record.speed * 3.6;
+                                    }
+                                    speeds.push(speedKmh);
+                                    paces.push(speedKmh && speedKmh > 0 ? 60 / speedKmh : null);
+                                }
+                            }
+                        });
+                        
+                        if (coordinates.length === 0) {
+                            reject(new Error('No valid GPS data found'));
+                            return;
+                        }
+                        
+                        resolve(this.createRouteData(filename, color, coordinates, elevations, 
+                            timestamps, heartRates, cadences, powers, speeds, paces));
+                    });
+                });
+            }
+            
+            static createRouteData(filename, color, coordinates, elevations, timestamps, 
+                heartRates, cadences, powers, speeds, paces) {
+                const distance = Utils.calculateDistance(coordinates);
+                const elevStats = Utils.calculateElevationStats(elevations.filter(e => e !== null));
+                
+                let duration = null;
+                const validTimestamps = timestamps.filter(t => t !== null);
+                if (validTimestamps.length >= 2) {
+                    duration = (validTimestamps[validTimestamps.length - 1] - validTimestamps[0]) / 1000 / 60;
+                }
+                
+                return {
+                    filename,
+                    color,
+                    coordinates,
+                    elevations: elevations.filter(e => e !== null),
+                    heartRates: heartRates.filter(hr => hr !== null),
+                    cadences: cadences.filter(c => c !== null),
+                    powers: powers.filter(p => p !== null),
+                    speeds: speeds.filter(s => s !== null),
+                    paces: paces.filter(p => p !== null),
+                    timestamps,
+                    stats: {
+                        distance,
+                        elevationGain: elevStats.gain,
+                        elevationLoss: elevStats.loss,
+                        minElevation: elevStats.min,
+                        maxElevation: elevStats.max,
+                        duration
+                    }
+                };
+            }
+        }
+
+        // ============================================================================
+        // APPLICATION CLASS - Main application controller
+        // ============================================================================
+        
+        class RouteOverlayApp {
+            constructor() {
+                this.routes = [];
+                this.mapManager = null;
+                this.animationManager = null;
+                this.chartManager = null;
+                this.compareMode = false;
+                this.highlightedRoute = null;
+                this.highlightTimeout = null;
+                
+                this.initializeWhenReady();
+            }
+            
+            initializeWhenReady() {
+                if (typeof google !== 'undefined' && google.maps) {
+                    this.initialize();
+                } else {
+                    window.initMap = () => this.initialize();
+                }
+            }
+            
+            initialize() {
+                this.mapManager = new MapManager(document.getElementById('map'));
+                this.animationManager = new AnimationManager(this.mapManager);
+                this.chartManager = new ChartManager();
+                
+                this.setupEventListeners();
+                this.setupDragAndDrop();
+            }
+            
+            setupEventListeners() {
+                // File inputs
+                document.getElementById('fileInput').addEventListener('change', (e) => this.handleFileSelect(e));
+                document.getElementById('compactFileInput').addEventListener('change', (e) => this.handleFileSelect(e));
+                
+                // Compare mode
+                document.getElementById('compareBtn').addEventListener('click', () => this.toggleCompareMode());
+                
+                // Sidebar toggle
+                document.getElementById('sidebarToggle').addEventListener('click', () => this.toggleSidebar());
+                
+                // Comparison panel - use event delegation
+                document.querySelector('.comparison-actions').addEventListener('click', (e) => {
+                    if (e.target.classList.contains('comparison-elevation-btn')) {
+                        this.compareMetric(e.target.dataset.metric);
+                    } else if (e.target.classList.contains('comparison-close')) {
+                        this.closeComparison();
+                    }
+                });
+                
+                // File list - use event delegation
+                const fileList = document.getElementById('fileList');
+                fileList.addEventListener('click', (e) => this.handleFileListClick(e));
+                fileList.addEventListener('change', (e) => this.handleFileListChange(e));
+                fileList.addEventListener('blur', (e) => this.handleFileListBlur(e), true);
+            }
+            
+            setupDragAndDrop() {
+                const setupDropZone = (zone, input) => {
+                    zone.addEventListener('click', () => input.click());
+                    zone.addEventListener('dragover', (e) => {
+                        e.preventDefault();
+                        zone.classList.add('dragover');
+                    });
+                    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+                    zone.addEventListener('drop', (e) => {
+                        e.preventDefault();
+                        zone.classList.remove('dragover');
+                        this.handleFiles(e.dataTransfer.files);
+                    });
+                };
+                
+                setupDropZone(document.getElementById('dropZone'), document.getElementById('fileInput'));
+                setupDropZone(document.getElementById('compactDropZone'), document.getElementById('compactFileInput'));
+            }
+            
+            handleFileListClick(e) {
+                const fileItem = e.target.closest('.file-item');
+                if (!fileItem) return;
+                
+                const index = Array.from(fileItem.parentElement.children).indexOf(fileItem);
+                
+                // Handle specific button clicks
+                if (e.target.classList.contains('file-play')) {
+                    this.toggleAnimation(index);
+                } else if (e.target.classList.contains('file-toggle')) {
+                    this.toggleVisibility(index);
+                } else if (e.target.classList.contains('file-remove')) {
+                    this.removeRoute(index);
+                } else if (e.target.classList.contains('show-graph-btn')) {
+                    this.showGraph(index);
+                } else if (e.target.classList.contains('compare-checkbox')) {
+                    this.toggleSelection(index);
+                } else if (!e.target.classList.contains('file-display-name') && 
+                           !e.target.classList.contains('metric-dropdown')) {
+                    // Click on item itself
+                    if (!this.compareMode) {
+                        this.highlightRoute(index);
+                    }
+                }
+            }
+            
+            handleFileListChange(e) {
+                if (e.target.classList.contains('compare-checkbox')) {
+                    const fileItem = e.target.closest('.file-item');
+                    const index = Array.from(fileItem.parentElement.children).indexOf(fileItem);
+                    this.toggleSelection(index);
+                }
+            }
+            
+            handleFileListBlur(e) {
+                if (e.target.classList.contains('file-display-name')) {
+                    const fileItem = e.target.closest('.file-item');
+                    const index = Array.from(fileItem.parentElement.children).indexOf(fileItem);
+                    const route = this.routes[index];
+                    route.displayName = e.target.textContent.trim() || route.displayName;
+                    e.target.textContent = route.displayName;
+                }
+            }
+            
+            handleFileSelect(e) {
+                this.handleFiles(e.target.files);
+                e.target.value = '';
+            }
+            
+            async handleFiles(files) {
+                const fileArray = Array.from(files);
+                
+                for (const file of fileArray) {
+                    const isGPX = file.name.toLowerCase().endsWith('.gpx');
+                    const isFIT = file.name.toLowerCase().endsWith('.fit');
+                    
+                    if (!isGPX && !isFIT) {
+                        alert(`${file.name} is not a GPX or FIT file`);
+                        continue;
+                    }
+                    
+                    try {
+                        const color = Utils.colors[this.routes.length % Utils.colors.length];
+                        
+                        if (isGPX) {
+                            const text = await file.text();
+                            const routeData = FileParser.parseGPX(text, color, file.name);
+                            this.addRoute(routeData);
+                        } else {
+                            const buffer = await file.arrayBuffer();
+                            const routeData = await FileParser.parseFIT(buffer, color, file.name);
+                            this.addRoute(routeData);
+                        }
+                    } catch (error) {
+                        alert(`Error parsing ${file.name}: ${error.message}`);
+                    }
+                }
+            }
+            
+            addRoute(routeData) {
+                const route = new Route(routeData);
+                const index = this.routes.length;
+                
+                route.createMapObjects(this.mapManager.map, index, {
+                    onMouseOver: (r, e) => this.mapManager.showTooltip(r.displayName, e.latLng),
+                    onMouseMove: (r, e) => this.mapManager.showTooltip(r.displayName, e.latLng),
+                    onMouseOut: () => this.mapManager.hideTooltip(),
+                    onClick: (r) => this.highlightRoute(this.routes.indexOf(r))
+                });
+                
+                this.routes.push(route);
+                this.updateUI();
+                this.mapManager.fitToRoutes(this.routes);
+            }
+            
+            removeRoute(index) {
+                const route = this.routes[index];
+                
+                if (route.isPlaying) {
+                    this.animationManager.stop(route);
+                }
+                
+                route.destroy();
+                this.routes.splice(index, 1);
+                this.updateUI();
+                
+                if (this.compareMode) {
+                    this.updateComparison();
+                }
+                
+                if (this.routes.length === 0) {
+                    this.closeComparison();
+                    this.mapManager.map.setCenter({ lat: 40, lng: -100 });
+                    this.mapManager.map.setZoom(4);
+                } else {
+                    this.mapManager.fitToRoutes(this.routes);
+                }
+            }
+            
+            toggleVisibility(index) {
+                const route = this.routes[index];
+                route.setVisible(!route.visible, this.mapManager.map);
+                this.updateUI();
+            }
+            
+            toggleAnimation(index) {
+                const route = this.routes[index];
+                
+                if (route.isPlaying) {
+                    this.animationManager.stop(route);
+                } else {
+                    this.animationManager.start(route);
+                }
+                
+                this.updateUI();
+            }
+            
+            highlightRoute(index) {
+                if (this.highlightedRoute !== null) {
+                    this.routes[this.highlightedRoute].highlight(false);
+                    document.querySelectorAll('.file-item')[this.highlightedRoute]?.classList.remove('highlighted');
+                    clearTimeout(this.highlightTimeout);
+                }
+                
+                if (index !== null && this.routes[index]) {
+                    this.routes[index].highlight(true);
+                    const fileItems = document.querySelectorAll('.file-item');
+                    if (fileItems[index]) {
+                        fileItems[index].classList.add('highlighted');
+                        fileItems[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                    
+                    this.highlightedRoute = index;
+                    
+                    this.highlightTimeout = setTimeout(() => {
+                        if (this.highlightedRoute === index) {
+                            this.routes[index].highlight(false);
+                            fileItems[index]?.classList.remove('highlighted');
+                            this.highlightedRoute = null;
+                        }
+                    }, 2000);
+                }
+            }
+            
+            toggleCompareMode() {
+                this.compareMode = !this.compareMode;
+                const btn = document.getElementById('compareBtn');
+                const fileList = document.getElementById('fileList');
+                
+                if (this.compareMode) {
+                    btn.classList.add('active');
+                    btn.textContent = '✓ Compare Mode';
+                    fileList.classList.add('compare-mode');
+                } else {
+                    btn.classList.remove('active');
+                    btn.textContent = '📊 Compare Routes';
+                    fileList.classList.remove('compare-mode');
+                    this.routes.forEach(r => r.selected = false);
+                    this.closeComparison();
+                }
+                
+                this.updateUI();
+            }
+            
+            toggleSelection(index) {
+                if (!this.compareMode) return;
+                this.routes[index].selected = !this.routes[index].selected;
+                this.updateUI();
+                this.updateComparison();
+            }
+            
+            showGraph(index) {
+                const route = this.routes[index];
+                const dropdown = document.getElementById(`metricDropdown${index}`);
+                const metricType = dropdown.value;
+                
+                const metricConfig = {
+                    elevation: { data: route.elevations, name: 'Elevation', label: 'Elevation (m)', format: v => Math.round(v) + 'm' },
+                    speed: { data: route.speeds, name: 'Speed', label: 'Speed (km/h)', format: v => v.toFixed(1) + ' km/h' },
+                    pace: { data: route.paces, name: 'Pace', label: 'Pace (min/km)', format: v => Utils.formatPace(v) },
+                    heartrate: { data: route.heartRates, name: 'Heart Rate', label: 'Heart Rate (bpm)', format: v => Math.round(v) + ' bpm' },
+                    cadence: { data: route.cadences, name: 'Cadence', label: 'Cadence (spm)', format: v => Math.round(v) + ' spm' },
+                    power: { data: route.powers, name: 'Power', label: 'Power (W)', format: v => Math.round(v) + 'W' },
+                    grade: { data: null, name: 'Grade', label: 'Grade (%)', format: v => v.toFixed(1) + '%' }
+                };
+                
+                const config = metricConfig[metricType];
+                if (!config) return;
+                
+                if (metricType === 'grade') {
+                    if (!route.elevations || route.elevations.length === 0) {
+                        alert('No elevation data available for grade calculation');
+                        return;
+                    }
+                    this.showGradeChart([route]);
+                } else {
+                    if (!config.data || config.data.length === 0) {
+                        alert(`No ${config.name.toLowerCase()} data available for this route`);
+                        return;
+                    }
+                    this.chartManager.show([route], metricType, config.label, config.format);
+                }
+            }
+            
+            showGradeChart(routes) {
+                const routesWithGrade = routes.map(route => {
+                    const grades = [];
+                    for (let i = 1; i < route.coordinates.length; i++) {
+                        const dist = Utils.haversineDistance(route.coordinates[i-1], route.coordinates[i]) * 1000;
+                        const elevChange = route.elevations[i] - route.elevations[i-1];
+                        grades.push(dist > 0 ? (elevChange / dist) * 100 : 0);
+                    }
+                    return { ...route, elevations: grades };
+                });
+                
+                this.chartManager.show(routesWithGrade, 'elevation', 'Grade (%)', v => v.toFixed(1) + '%');
+            }
+            
+            compareMetric(metricType) {
+                const selectedRoutes = this.routes.filter(r => r.selected);
+                
+                const metricConfig = {
+                    elevation: { data: 'elevations', name: 'Elevation', label: 'Elevation (m)', format: v => Math.round(v) + 'm' },
+                    speed: { data: 'speeds', name: 'Speed', label: 'Speed (km/h)', format: v => v.toFixed(1) + ' km/h' },
+                    pace: { data: 'paces', name: 'Pace', label: 'Pace (min/km)', format: v => Utils.formatPace(v) },
+                    heartrate: { data: 'heartRates', name: 'Heart Rate', label: 'Heart Rate (bpm)', format: v => Math.round(v) + ' bpm' },
+                    cadence: { data: 'cadences', name: 'Cadence', label: 'Cadence (spm)', format: v => Math.round(v) + ' spm' },
+                    power: { data: 'powers', name: 'Power', label: 'Power (W)', format: v => Math.round(v) + 'W' }
+                };
+                
+                const config = metricConfig[metricType];
+                const validRoutes = selectedRoutes.filter(r => r[config.data] && r[config.data].length > 0);
+                
+                if (validRoutes.length < 2) {
+                    alert(`Please select at least 2 routes with ${config.name.toLowerCase()} data`);
+                    return;
+                }
+                
+                this.chartManager.show(validRoutes, metricType, config.label, config.format);
+            }
+            
+            updateComparison() {
+                const selectedRoutes = this.routes.filter(r => r.selected);
+                const panel = document.getElementById('comparisonPanel');
+                
+                if (selectedRoutes.length < 2) {
+                    panel.classList.remove('show');
+                    return;
+                }
+                
+                // Enable/disable metric buttons
+                const hasMetric = (prop) => selectedRoutes.some(r => r[prop] && r[prop].length > 0);
+                document.querySelectorAll('.comparison-elevation-btn').forEach(btn => {
+                    const metric = btn.dataset.metric;
+                    const propMap = {
+                        elevation: 'elevations',
+                        speed: 'speeds',
+                        pace: 'paces',
+                        heartrate: 'heartRates',
+                        cadence: 'cadences',
+                        power: 'powers'
+                    };
+                    btn.disabled = !hasMetric(propMap[metric]);
+                });
+                
+                panel.classList.add('show');
+                
+                // Build comparison table
+                let html = `
+                    <thead>
+                        <tr>
+                            <th>Route</th>
+                            <th>Distance</th>
+                            <th>Elevation Gain</th>
+                            <th>Max Elevation</th>
+                            <th>Duration</th>
+                            <th>Avg Heart Rate</th>
+                            <th>Avg Pace</th>
+                            <th>Avg Cadence</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                `;
+                
+                selectedRoutes.forEach(route => {
+                    const avg = (arr) => arr && arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+                    
+                    html += `
+                        <tr>
+                            <td>
+                                <div class="route-name-cell">
+                                    <div class="route-color-indicator" style="background: ${route.color}"></div>
+                                    <strong>${route.displayName}</strong>
+                                </div>
+                            </td>
+                            <td>${Utils.formatDistance(route.stats.distance)}</td>
+                            <td>${Utils.formatElevation(route.stats.elevationGain)}</td>
+                            <td>${Utils.formatElevation(route.stats.maxElevation)}</td>
+                            <td>${Utils.formatDuration(route.stats.duration)}</td>
+                            <td>${Utils.formatHeartRate(avg(route.heartRates))}</td>
+                            <td>${Utils.formatPace(avg(route.paces))}</td>
+                            <td>${Utils.formatCadence(avg(route.cadences))}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += '</tbody>';
+                document.getElementById('comparisonTableContent').innerHTML = html;
+            }
+            
+            closeComparison() {
+                document.getElementById('comparisonPanel').classList.remove('show');
+            }
+            
+            toggleSidebar() {
+                const sidebar = document.getElementById('sidebar');
+                const toggle = document.getElementById('sidebarToggle');
+                
+                sidebar.classList.toggle('collapsed');
+                toggle.textContent = sidebar.classList.contains('collapsed') ? '▶' : '◀';
+                toggle.title = sidebar.classList.contains('collapsed') ? 'Show sidebar' : 'Hide sidebar';
+                
+                setTimeout(() => {
+                    google.maps.event.trigger(this.mapManager.map, 'resize');
+                    if (this.routes.length > 0) {
+                        this.mapManager.fitToRoutes(this.routes);
+                    }
+                }, 300);
+            }
+            
+            updateUI() {
+                const fileList = document.getElementById('fileList');
+                const dropZone = document.getElementById('dropZone');
+                const compactDropZone = document.getElementById('compactDropZone');
+                
+                if (this.routes.length === 0) {
+                    fileList.classList.add('hidden');
+                    dropZone.classList.remove('hidden');
+                    compactDropZone.classList.add('hidden');
+                    return;
+                }
+                
+                fileList.classList.remove('hidden');
+                dropZone.classList.add('hidden');
+                compactDropZone.classList.remove('hidden');
+                
+                fileList.innerHTML = '';
+                
+                this.routes.forEach((route, index) => {
+                    const item = this.createFileItem(route, index);
+                    fileList.appendChild(item);
+                });
+            }
+            
+            createFileItem(route, index) {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                if (route.selected) item.classList.add('selected');
+                
+                // Checkbox for compare mode
+                if (this.compareMode) {
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.className = 'compare-checkbox';
+                    checkbox.checked = route.selected;
+                    item.appendChild(checkbox);
+                }
+                
+                // Header with number and color
+                const header = document.createElement('div');
+                header.className = 'file-header';
+                
+                const number = document.createElement('div');
+                number.className = 'file-number';
+                number.textContent = index + 1;
+                number.style.borderColor = route.color;
+                number.style.color = route.color;
+                
+                const colorBox = document.createElement('div');
+                colorBox.className = 'file-color';
+                colorBox.style.background = route.color;
+                
+                header.appendChild(number);
+                header.appendChild(colorBox);
+                
+                // Name container
+                const nameContainer = document.createElement('div');
+                nameContainer.className = 'file-name-container';
+                
+                const displayName = document.createElement('div');
+                displayName.className = 'file-display-name';
+                displayName.contentEditable = true;
+                displayName.textContent = route.displayName;
+                displayName.spellcheck = false;
+                displayName.title = 'Click to edit display name';
+                
+                displayName.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        displayName.blur();
+                    }
+                });
+                
+                displayName.addEventListener('click', (e) => e.stopPropagation());
+                
+                const originalName = document.createElement('div');
+                originalName.className = 'file-original-name';
+                originalName.textContent = route.filename;
+                originalName.title = route.filename;
+                
+                nameContainer.appendChild(displayName);
+                nameContainer.appendChild(originalName);
+                
+                // Stats
+                const stats = document.createElement('div');
+                stats.className = 'file-stats';
+                stats.innerHTML = `
+                    <div class="stat-row">
+                        <span class="stat-label">Distance:</span>
+                        <span class="stat-value">${Utils.formatDistance(route.stats.distance)}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">Elev Gain:</span>
+                        <span class="stat-value">${Utils.formatElevation(route.stats.elevationGain)}</span>
+                    </div>
+                    ${route.stats.duration ? `
+                    <div class="stat-row">
+                        <span class="stat-label">Duration:</span>
+                        <span class="stat-value">${Utils.formatDuration(route.stats.duration)}</span>
+                    </div>` : ''}
+                `;
+                
+                // Actions
+                const actions = document.createElement('div');
+                actions.className = 'file-actions';
+                
+                const hasMetrics = route.elevations.length > 0 || route.speeds.length > 0 || 
+                                  route.paces.length > 0 || route.heartRates.length > 0 || 
+                                  route.cadences.length > 0 || route.powers.length > 0;
+                
+                if (hasMetrics) {
+                    const metricContainer = document.createElement('div');
+                    metricContainer.className = 'metric-selector-container';
+                    
+                    const dropdown = document.createElement('select');
+                    dropdown.className = 'metric-dropdown';
+                    dropdown.id = `metricDropdown${index}`;
+                    
+                    const addOption = (value, label, hasData) => {
+                        if (hasData) dropdown.innerHTML += `<option value="${value}">${label}</option>`;
+                    };
+                    
+                    addOption('elevation', '📈 Elevation', route.elevations.length > 0);
+                    addOption('grade', '📊 Grade', route.elevations.length > 0);
+                    addOption('speed', '🏃 Speed', route.speeds.length > 0);
+                    addOption('pace', '⏱️ Pace', route.paces.length > 0);
+                    addOption('heartrate', '❤️ Heart Rate', route.heartRates.length > 0);
+                    addOption('cadence', '👟 Cadence', route.cadences.length > 0);
+                    addOption('power', '⚡ Power', route.powers.length > 0);
+                    
+                    dropdown.onclick = (e) => e.stopPropagation();
+                    
+                    const graphBtn = document.createElement('button');
+                    graphBtn.className = 'show-graph-btn';
+                    graphBtn.textContent = '📊 Graph';
+                    
+                    metricContainer.appendChild(dropdown);
+                    metricContainer.appendChild(graphBtn);
+                    actions.appendChild(metricContainer);
+                }
+                
+                if (route.timestamps.some(t => t !== null)) {
+                    const playBtn = document.createElement('button');
+                    playBtn.className = 'file-play' + (route.isPlaying ? ' playing' : '');
+                    playBtn.textContent = route.isPlaying ? '⏸️ Pause' : '▶️ Play';
+                    actions.appendChild(playBtn);
+                }
+                
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'file-toggle' + (route.visible ? '' : ' hidden-route');
+                toggleBtn.textContent = route.visible ? 'Hide' : 'Show';
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'file-remove';
+                removeBtn.textContent = 'Remove';
+                
+                actions.appendChild(toggleBtn);
+                actions.appendChild(removeBtn);
+                
+                // Assemble
+                item.appendChild(header);
+                item.appendChild(nameContainer);
+                item.appendChild(stats);
+                item.appendChild(actions);
+                
+                return item;
+            }
+        }
+
+        // ============================================================================
+        // INITIALIZE APPLICATION
+        // ============================================================================
+        
+        const app = new RouteOverlayApp();
+    </script>
+
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDHN981eBYt2fLPZqx-r7iwVVasKfA-738&callback=initMap" async defer></script>
+</body>
+</html>
