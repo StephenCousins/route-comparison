@@ -3176,8 +3176,19 @@
                     return;
                 }
                 
-                // Clear current routes
-                this.routes.forEach(route => route.removeFromMap());
+                // Clear current routes safely
+                if (this.routes.length > 0) {
+                    // Remove from map properly
+                    for (let i = this.routes.length - 1; i >= 0; i--) {
+                        const route = this.routes[i];
+                        if (route && route.polyline) {
+                            route.polyline.setMap(null);
+                        }
+                        if (route && route.markers) {
+                            route.markers.forEach(marker => marker.setMap(null));
+                        }
+                    }
+                }
                 this.routes = [];
                 
                 // Load saved routes
