@@ -1379,52 +1379,59 @@
                 this.userId = userId;
             }
             
-            async saveRoutes(routes) {
+            async saveRoutes(routes, rawFiles) {
                 if (!firebaseInitialized || !this.userId) {
                     console.warn('Cannot save: not logged in');
                     return false;
                 }
                 
                 try {
-                    const routesData = routes.map(route => {
-                        // Create base object with required fields
-                        const routeData = {
-                            displayName: route.displayName || 'Unnamed Route',
-                            color: route.color || '#EA4335',
-                            coordinates: route.coordinates || [],
-                            elevations: route.elevations || [],
-                            speeds: route.speeds || [],
-                            paces: route.paces || [],
-                            timestamps: route.timestamps || [],
-                            distance: route.distance || 0,
-                            elevationStats: route.elevationStats || { gain: 0, loss: 0, min: 0, max: 0 },
-                            duration: route.duration || 0,
-                            fileName: route.fileName || 'unknown.gpx',
-                            savedAt: new Date().toISOString()
-                        };
-                        
-                        // Only add optional fields if they exist and are not undefined
-                        if (route.heartRates !== undefined && route.heartRates !== null) {
-                            routeData.heartRates = route.heartRates;
-                        }
-                        if (route.cadences !== undefined && route.cadences !== null) {
-                            routeData.cadences = route.cadences;
-                        }
-                        if (route.powers !== undefined && route.powers !== null) {
-                            routeData.powers = route.powers;
-                        }
-                        
-                        return routeData;
-                    });
+                    // Create session document first to get session ID
+                    const sessionRef = db.collection('users').doc(this.userId).collection('sessions').doc();
+                    const sessionId = sessionRef.id;
                     
-                    const docRef = await db.collection('users').doc(this.userId).collection('sessions').add({
-                        routes: routesData,
+                    console.log('📤 Uploading files to Cloud Storage...');
+                    
+                    // Upload raw files to Cloud Storage
+                    const fileMetadata = [];
+                    for (let i = 0; i < rawFiles.length; i++) {
+                        const file = rawFiles[i];
+                        const route = routes[i];
+                        
+                        // Create storage path: users/{userId}/sessions/{sessionId}/{filename}
+                        const storageRef = storage.ref(`users/${this.userId}/sessions/${sessionId}/${file.name}`);
+                        
+                        // Upload file
+                        const uploadTask = await storageRef.put(file);
+                        const downloadURL = await uploadTask.ref.getDownloadURL();
+                        
+                        fileMetadata.push({
+                            fileName: file.name,
+                            fileSize: file.size,
+                            fileType: file.type,
+                            displayName: route.displayName,
+                            color: route.color,
+                            distance: Math.round(route.distance * 100) / 100 || 0,
+                            duration: Math.round(route.duration || 0),
+                            elevationGain: Math.round(route.elevationStats?.gain || 0),
+                            elevationLoss: Math.round(route.elevationStats?.loss || 0),
+                            downloadURL: downloadURL,
+                            storagePath: storageRef.fullPath
+                        });
+                        
+                        console.log(`✅ Uploaded ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+                    }
+                    
+                    // Save session metadata to Firestore
+                    await sessionRef.set({
+                        files: fileMetadata,
                         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                        routeCount: routes.length
+                        routeCount: routes.length,
+                        totalSize: rawFiles.reduce((sum, f) => sum + f.size, 0)
                     });
                     
-                    console.log('✅ Routes saved:', docRef.id);
-                    return docRef.id;
+                    console.log(`✅ Session saved: ${sessionId}`);
+                    return sessionId;
                 } catch (error) {
                     console.error('❌ Save error:', error);
                     alert('Failed to save routes: ' + error.message);
@@ -1473,11 +1480,47 @@
                         .doc(sessionId)
                         .get();
                     
-                    if (doc.exists) {
-                        console.log('✅ Session loaded:', sessionId);
-                        return doc.data();
+                    if (!doc.exists) {
+                        return null;
                     }
-                    return null;
+                    
+                    const sessionData = doc.data();
+                    console.log(`📥 Downloading ${sessionData.files.length} files from Cloud Storage...`);
+                    
+                    // Download and parse each file
+                    const parsedRoutes = [];
+                    for (const fileMetadata of sessionData.files) {
+                        try {
+                            // Download file from Cloud Storage
+                            const storageRef = storage.ref(fileMetadata.storagePath);
+                            const downloadURL = await storageRef.getDownloadURL();
+                            
+                            // Fetch file content
+                            const response = await fetch(downloadURL);
+                            
+                            const isGPX = fileMetadata.fileName.toLowerCase().endsWith('.gpx');
+                            const isFIT = fileMetadata.fileName.toLowerCase().endsWith('.fit');
+                            
+                            if (isGPX) {
+                                const text = await response.text();
+                                const routeData = FileParser.parseGPX(text, fileMetadata.color, fileMetadata.fileName);
+                                routeData.displayName = fileMetadata.displayName;
+                                parsedRoutes.push(routeData);
+                                console.log(`✅ Downloaded and parsed ${fileMetadata.fileName}`);
+                            } else if (isFIT) {
+                                const arrayBuffer = await response.arrayBuffer();
+                                const routeData = await FileParser.parseFIT(arrayBuffer, fileMetadata.color, fileMetadata.fileName);
+                                routeData.displayName = fileMetadata.displayName;
+                                parsedRoutes.push(routeData);
+                                console.log(`✅ Downloaded and parsed ${fileMetadata.fileName}`);
+                            }
+                        } catch (error) {
+                            console.error(`❌ Error loading ${fileMetadata.fileName}:`, error);
+                        }
+                    }
+                    
+                    console.log(`✅ Session loaded: ${sessionId}`);
+                    return { routes: parsedRoutes };
                 } catch (error) {
                     console.error('❌ Load session error:', error);
                     return null;
@@ -1490,6 +1533,31 @@
                 }
                 
                 try {
+                    // Get session data to find storage paths
+                    const doc = await db.collection('users')
+                        .doc(this.userId)
+                        .collection('sessions')
+                        .doc(sessionId)
+                        .get();
+                    
+                    if (doc.exists) {
+                        const sessionData = doc.data();
+                        
+                        // Delete files from Cloud Storage
+                        if (sessionData.files) {
+                            for (const fileMetadata of sessionData.files) {
+                                try {
+                                    const storageRef = storage.ref(fileMetadata.storagePath);
+                                    await storageRef.delete();
+                                    console.log(`🗑️ Deleted ${fileMetadata.fileName} from storage`);
+                                } catch (error) {
+                                    console.warn(`⚠️ Could not delete ${fileMetadata.fileName}:`, error.message);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Delete Firestore document
                     await db.collection('users')
                         .doc(this.userId)
                         .collection('sessions')
@@ -2968,6 +3036,7 @@
         class RouteOverlayApp {
             constructor() {
                 this.routes = [];
+                this.rawFiles = []; // Track original uploaded files
                 this.mapManager = null;
                 this.animationManager = null;
                 this.chartManager = null;
@@ -3074,12 +3143,17 @@
                     return;
                 }
                 
+                if (this.rawFiles.length !== this.routes.length) {
+                    alert('Error: Mismatch between routes and files. Please reload the page and try again.');
+                    return;
+                }
+                
                 const saveBtn = document.getElementById('saveCurrentBtn');
                 const originalText = saveBtn.innerHTML;
                 saveBtn.disabled = true;
-                saveBtn.innerHTML = '<span class="loading-spinner"></span> Saving...';
+                saveBtn.innerHTML = '<span class="loading-spinner"></span> Uploading...';
                 
-                const sessionId = await storageManager.saveRoutes(this.routes);
+                const sessionId = await storageManager.saveRoutes(this.routes, this.rawFiles);
                 
                 if (sessionId) {
                     saveBtn.innerHTML = '✅ Saved!';
@@ -3113,13 +3187,14 @@
                 listEl.innerHTML = this.savedSessions.map(session => {
                     const date = session.createdAt ? new Date(session.createdAt.toDate()).toLocaleDateString() : 'Unknown date';
                     const routeCount = session.routeCount || 0;
-                    const firstRouteName = session.routes && session.routes.length > 0 ? session.routes[0].displayName : 'Unnamed';
+                    const totalSize = session.totalSize ? (session.totalSize / 1024 / 1024).toFixed(1) : '0';
+                    const firstRouteName = session.files && session.files.length > 0 ? session.files[0].displayName : 'Unnamed';
                     
                     return `
                         <div class="saved-route-item">
                             <div class="saved-route-info">
                                 <div class="saved-route-name">${firstRouteName}${routeCount > 1 ? ` +${routeCount - 1} more` : ''}</div>
-                                <div class="saved-route-meta">${date} • ${routeCount} route${routeCount !== 1 ? 's' : ''}</div>
+                                <div class="saved-route-meta">${date} • ${routeCount} file${routeCount !== 1 ? 's' : ''} • ${totalSize} MB</div>
                             </div>
                             <div class="saved-route-actions">
                                 <button class="saved-route-btn" onclick="app.loadSavedSession('${session.id}')">Load</button>
@@ -3137,9 +3212,10 @@
                     return;
                 }
                 
-                // Clear current routes
+                // Clear current routes and raw files
                 this.routes.forEach(route => route.removeFromMap());
                 this.routes = [];
+                this.rawFiles = []; // Clear raw files when loading from cloud
                 
                 // Load saved routes
                 for (const routeData of session.routes) {
@@ -3147,6 +3223,14 @@
                 }
                 
                 console.log(`✅ Loaded ${session.routes.length} routes from saved session`);
+                
+                // Note: Loaded routes cannot be re-saved as they don't have original files
+                // Show info to user
+                const saveBtn = document.getElementById('saveCurrentBtn');
+                if (saveBtn.classList.contains('visible')) {
+                    saveBtn.disabled = true;
+                    saveBtn.title = 'Cannot re-save loaded sessions. Upload new files to save.';
+                }
             }
             
             async deleteSavedSession(sessionId) {
@@ -3270,6 +3354,9 @@
                     try {
                         const color = Utils.colors[this.routes.length % Utils.colors.length];
                         
+                        // Store the raw file for later saving
+                        this.rawFiles.push(file);
+                        
                         if (isGPX) {
                             const text = await file.text();
                             const routeData = FileParser.parseGPX(text, color, file.name);
@@ -3316,6 +3403,12 @@
                 
                 route.destroy();
                 this.routes.splice(index, 1);
+                
+                // Also remove corresponding raw file if it exists
+                if (this.rawFiles[index]) {
+                    this.rawFiles.splice(index, 1);
+                }
+                
                 this.updateUI();
                 
                 if (this.compareMode) {
