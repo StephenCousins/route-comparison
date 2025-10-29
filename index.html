@@ -1288,12 +1288,12 @@
         
         // Firebase Configuration - REPLACE THESE WITH YOUR FIREBASE PROJECT VALUES
         const firebaseConfig = {
-            apiKey: "AIzaSyB5wxDcFNEdmhrmyZqpVW30mC460kHUzs8",
-            authDomain: "gps-route-overlay.firebaseapp.com",
-            projectId: "gps-route-overlay",
-            storageBucket: "Ygps-route-overlay.firebasestorage.app",
-            messagingSenderId: "910323096205",
-            appId: "1:910323096205:web:ee740787d7aeffa5b820c4"
+            apiKey: "YOUR_API_KEY_HERE",
+            authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT_ID.appspot.com",
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+            appId: "YOUR_APP_ID"
         };
         
         // Initialize Firebase
@@ -1386,23 +1386,36 @@
                 }
                 
                 try {
-                    const routesData = routes.map(route => ({
-                        displayName: route.displayName,
-                        color: route.color,
-                        coordinates: route.coordinates,
-                        elevations: route.elevations,
-                        speeds: route.speeds,
-                        paces: route.paces,
-                        heartRates: route.heartRates,
-                        cadences: route.cadences,
-                        powers: route.powers,
-                        timestamps: route.timestamps,
-                        distance: route.distance,
-                        elevationStats: route.elevationStats,
-                        duration: route.duration,
-                        fileName: route.fileName,
-                        savedAt: new Date().toISOString()
-                    }));
+                    const routesData = routes.map(route => {
+                        // Create base object with required fields
+                        const routeData = {
+                            displayName: route.displayName || 'Unnamed Route',
+                            color: route.color || '#EA4335',
+                            coordinates: route.coordinates || [],
+                            elevations: route.elevations || [],
+                            speeds: route.speeds || [],
+                            paces: route.paces || [],
+                            timestamps: route.timestamps || [],
+                            distance: route.distance || 0,
+                            elevationStats: route.elevationStats || { gain: 0, loss: 0, min: 0, max: 0 },
+                            duration: route.duration || 0,
+                            fileName: route.fileName || 'unknown.gpx',
+                            savedAt: new Date().toISOString()
+                        };
+                        
+                        // Only add optional fields if they exist and are not undefined
+                        if (route.heartRates !== undefined && route.heartRates !== null) {
+                            routeData.heartRates = route.heartRates;
+                        }
+                        if (route.cadences !== undefined && route.cadences !== null) {
+                            routeData.cadences = route.cadences;
+                        }
+                        if (route.powers !== undefined && route.powers !== null) {
+                            routeData.powers = route.powers;
+                        }
+                        
+                        return routeData;
+                    });
                     
                     const docRef = await db.collection('users').doc(this.userId).collection('sessions').add({
                         routes: routesData,
