@@ -1008,6 +1008,69 @@ class RouteOverlayApp {
     closeComparison() {
         document.getElementById('comparisonPanel').classList.remove('show');
     }
+
+    exportComparisonCSV() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 2) {
+            alert('Please select at least 2 routes to export');
+            return;
+        }
+
+        const avg = (arr) => arr && arr.length > 0
+            ? arr.filter(v => v !== null && !isNaN(v)).reduce((a, b) => a + b, 0) / arr.filter(v => v !== null && !isNaN(v)).length
+            : null;
+
+        // CSV headers
+        const headers = [
+            'Route Name',
+            'Distance (km)',
+            'Duration',
+            'Avg Pace (min/km)',
+            'Elevation Gain (m)',
+            'Elevation Loss (m)',
+            'Avg Heart Rate (bpm)',
+            'Avg Cadence (spm)',
+            'Avg Power (W)'
+        ];
+
+        // Build rows
+        const rows = selectedRoutes.map(route => {
+            const avgHR = avg(route.heartRates);
+            const avgPace = avg(route.paces);
+            const avgCadence = avg(route.cadences);
+            const avgPower = avg(route.powers);
+
+            return [
+                `"${route.displayName.replace(/"/g, '""')}"`,
+                (route.stats.distance / 1000).toFixed(2),
+                route.stats.duration ? Utils.formatDuration(route.stats.duration) : 'N/A',
+                avgPace ? Utils.formatPace(avgPace) : 'N/A',
+                Math.round(route.stats.elevationGain),
+                Math.round(route.stats.elevationLoss),
+                avgHR ? Math.round(avgHR) : 'N/A',
+                avgCadence ? Math.round(avgCadence) : 'N/A',
+                avgPower ? Math.round(avgPower) : 'N/A'
+            ];
+        });
+
+        // Build CSV content
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(row => row.join(','))
+        ].join('\n');
+
+        // Create and trigger download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `route-comparison-${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
 }
 
 // Initialize
@@ -1058,6 +1121,10 @@ window.startRace = function() {
 
 window.stopRace = function() {
     if (app) app.stopRace();
+};
+
+window.exportComparisonCSV = function() {
+    if (app) app.exportComparisonCSV();
 };
 
 // Load Google Maps API
