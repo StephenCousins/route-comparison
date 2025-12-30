@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPX & FIT Route Overlay</title>
+    <link rel="stylesheet" href="css/styles.css">
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+
+    <!-- FIT File Parser -->
+    <script type="module">
+        import FitParser from 'https://esm.run/fit-file-parser';
+        window.FitParser = FitParser;
+    </script>
+</head>
+<body>
+    <div id="header">
+        <h1>GPX & FIT Route Overlay</h1>
+        <div id="authContainer">
+            <button id="signInBtn">Sign in with Google</button>
+            <div id="userInfo" class="hidden">
+                <span id="userName"></span>
+                <button id="signOutBtn">Sign Out</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="mainContainer">
+        <div id="sidebar">
+            <button id="sidebarToggle" title="Hide sidebar">&lt;</button>
+
+            <div id="sidebarHeader">
+                <h2>Routes</h2>
+                <button id="compareBtn">Compare Routes</button>
+                <button id="saveCurrentBtn">Save Session</button>
+            </div>
+
+            <div id="savedSessionsList"></div>
+
+            <div id="dropZone">
+                <p>Drop GPX or FIT files here</p>
+                <p>or click to browse</p>
+                <input type="file" multiple accept=".gpx,.fit">
+            </div>
+
+            <div id="compactDropZone" class="hidden">
+                <p>+ Add more files</p>
+                <input type="file" multiple accept=".gpx,.fit">
+            </div>
+
+            <div id="fileList" class="hidden"></div>
+        </div>
+
+        <div id="mapContainer">
+            <div id="map"></div>
+            <div id="routeTooltip"></div>
+        </div>
+    </div>
+
+    <div id="playbackControls">
+        <span class="speed-label">Speed:</span>
+        <input type="range" id="speedSlider" min="0" max="100" value="33">
+        <span id="speedDisplay">1x</span>
+    </div>
+
+    <div id="comparisonPanel">
+        <div class="comparison-header">
+            <h3>Route Comparison</h3>
+            <div class="comparison-actions">
+                <button class="comparison-elevation-btn" data-metric="elevation" onclick="compareMetric('elevation')">Elevation</button>
+                <button class="comparison-elevation-btn" data-metric="speed" onclick="compareMetric('speed')">Speed</button>
+                <button class="comparison-elevation-btn" data-metric="pace" onclick="compareMetric('pace')">Pace</button>
+                <button class="comparison-elevation-btn" data-metric="heartrate" onclick="compareMetric('heartrate')">Heart Rate</button>
+                <button class="comparison-elevation-btn" data-metric="cadence" onclick="compareMetric('cadence')">Cadence</button>
+                <button class="comparison-elevation-btn" data-metric="power" onclick="compareMetric('power')">Power</button>
+                <button class="comparison-close" onclick="closeComparison()">Close</button>
+            </div>
+        </div>
+        <div class="comparison-content">
+            <table id="comparisonTableContent"></table>
+        </div>
+    </div>
+
+    <div id="elevationModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Metric Comparison</h2>
+                <button class="modal-close">Close</button>
+            </div>
+            <canvas id="elevationChart"></canvas>
+            <div class="chart-controls">
+                <button id="dragModeBtn" class="chart-control-btn">Drag to Align</button>
+                <button id="resetZoomBtn" class="chart-control-btn" disabled>Reset Zoom</button>
+                <button id="resetOffsetsBtn" class="chart-control-btn" disabled>Reset Offsets</button>
+            </div>
+            <div id="zoomInstructions" style="text-align: center; margin-top: 10px; color: #666; font-size: 12px;">
+                Click and drag to zoom into a region
+            </div>
+            <div id="chartLegend" class="chart-legend"></div>
+        </div>
+    </div>
+
+    <div id="chartCrosshair"></div>
+
+    <!-- Insights Modal -->
+    <div id="insightsModal">
+        <div class="insights-modal-content">
+            <div class="insights-modal-header">
+                <h2 id="insightsModalTitle">Run Insights</h2>
+                <button class="modal-close" id="closeInsightsModal">Close</button>
+            </div>
+            <div class="insights-tabs">
+                <button class="insights-tab active" data-tab="insights">Insights</button>
+                <button class="insights-tab" data-tab="elevation" style="display:none;">Elevation</button>
+                <button class="insights-tab" data-tab="grade" style="display:none;">Grade</button>
+                <button class="insights-tab" data-tab="speed" style="display:none;">Speed</button>
+                <button class="insights-tab" data-tab="pace" style="display:none;">Pace</button>
+                <button class="insights-tab" data-tab="heartrate" style="display:none;">Heart Rate</button>
+                <button class="insights-tab" data-tab="cadence" style="display:none;">Cadence</button>
+                <button class="insights-tab" data-tab="power" style="display:none;">Power</button>
+            </div>
+            <div class="insights-content">
+                <div id="insightsTabContent" class="insights-tab-panel active"></div>
+                <div id="graphTabContent" class="insights-tab-panel">
+                    <canvas id="insightsChart"></canvas>
+                    <div class="chart-controls">
+                        <button class="chart-control-btn" id="insightsResetZoomBtn" disabled>Reset Zoom</button>
+                        <span id="insightsZoomInstructions" style="color: #666; font-size: 12px;">Click and drag to zoom</span>
+                    </div>
+                    <div id="insightsChartLegend" class="chart-legend" style="display: none;"></div>
+                    <div id="metricSpecificInsights" style="margin-top: 20px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="insightsCrosshair"></div>
+
+    <!-- Main Application Module -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

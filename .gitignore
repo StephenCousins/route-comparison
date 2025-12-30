@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Environment and config files with secrets
+src/js/config.js
+.env
+.env.local
+.env.*.local
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build output
+dist/
+build/
