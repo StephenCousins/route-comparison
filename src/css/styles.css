@@ -525,6 +525,28 @@ body {
     transform: none;
     box-shadow: none;
 }
+.comparison-splits-btn {
+    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+.comparison-splits-btn:hover {
+    background: linear-gradient(135deg, #0f8a7f 0%, #32d870 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(17, 153, 142, 0.4);
+}
+.comparison-splits-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
 .comparison-close {
     background: #ea4335;
     color: white;
@@ -1336,4 +1358,139 @@ tr:hover {
 }
 .insights-btn:hover {
     background: #1557b0;
+}
+
+/* Splits Modal Styles */
+#splitsModal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+}
+#splitsModal.show {
+    display: flex;
+}
+.splits-modal-content {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    max-width: 95%;
+    width: 900px;
+    max-height: 85vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.splits-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e0e0e0;
+    flex-shrink: 0;
+}
+.splits-modal-header h2 {
+    font-size: 18px;
+    color: #1a73e8;
+    font-weight: 600;
+    margin: 0;
+}
+.splits-table-container {
+    flex: 1;
+    overflow: auto;
+}
+#splitsTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+#splitsTable th,
+#splitsTable td {
+    padding: 10px 12px;
+    text-align: center;
+    border-bottom: 1px solid #e0e0e0;
+    white-space: nowrap;
+}
+#splitsTable thead {
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 10;
+}
+#splitsTable th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #5f6368;
+}
+.split-number-header {
+    background: #1a73e8 !important;
+    color: white !important;
+    min-width: 70px;
+}
+.route-header {
+    background: #e8f0fe !important;
+    border-left: 2px solid #e0e0e0;
+}
+.route-header-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+.route-color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.metric-header {
+    font-size: 11px;
+    color: #666 !important;
+    background: #f8f9fa !important;
+}
+.split-number {
+    font-weight: 600;
+    color: #1a73e8;
+    background: #f8f9fa;
+    position: sticky;
+    left: 0;
+    z-index: 5;
+}
+.split-pace {
+    color: #1a73e8;
+    font-weight: 500;
+}
+.split-elev {
+    color: #34a853;
+}
+.split-hr {
+    color: #ea4335;
+}
+.split-na {
+    color: #999;
+}
+.partial-split {
+    font-style: italic;
+    opacity: 0.7;
+}
+.totals-row {
+    background: #f0f7ff !important;
+    border-top: 2px solid #1a73e8;
+}
+.totals-row td {
+    background: #f0f7ff;
+}
+#splitsTable tbody tr:hover {
+    background: #f8f9fa;
+}
+#splitsTable tbody tr:hover .split-number {
+    background: #e8f0fe;
 }

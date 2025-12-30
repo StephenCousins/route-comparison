@@ -79,6 +79,7 @@
                 <button class="comparison-elevation-btn" data-metric="cadence" onclick="compareMetric('cadence')">Cadence</button>
                 <button class="comparison-elevation-btn" data-metric="power" onclick="compareMetric('power')">Power</button>
                 <button class="comparison-timegap-btn" data-metric="timegap" onclick="compareTimeGap()">Time Gap</button>
+                <button class="comparison-splits-btn" data-metric="splits" onclick="compareSplits()">Splits</button>
                 <button class="comparison-close" onclick="closeComparison()">Close</button>
             </div>
         </div>
@@ -140,6 +141,19 @@
         </div>
     </div>
     <div id="insightsCrosshair"></div>
+
+    <!-- Splits Comparison Modal -->
+    <div id="splitsModal">
+        <div class="splits-modal-content">
+            <div class="splits-modal-header">
+                <h2>Split Comparison (1 km)</h2>
+                <button class="modal-close" onclick="closeSplitsModal()">Close</button>
+            </div>
+            <div class="splits-table-container">
+                <table id="splitsTable"></table>
+            </div>
+        </div>
+    </div>
 
     <!-- Main Application Module -->
     <script type="module" src="js/app.js"></script>

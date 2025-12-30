@@ -611,6 +611,109 @@ class RouteOverlayApp {
         this.chartManager.showTimeGapChart(timeGapData);
     }
 
+    compareSplits() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        // Check if we have at least 2 routes
+        if (selectedRoutes.length < 2) {
+            alert('Please select at least 2 routes to compare splits');
+            return;
+        }
+
+        // Check if routes have timestamp data (needed for pace)
+        const routesWithTimestamps = selectedRoutes.filter(r =>
+            r.timestamps && r.timestamps.length > 0 && r.timestamps.some(t => t !== null)
+        );
+
+        if (routesWithTimestamps.length < 2) {
+            alert('Split comparison requires at least 2 routes with timestamp data.');
+            return;
+        }
+
+        // Calculate splits for each route
+        const allSplits = routesWithTimestamps.map(route => ({
+            route: route,
+            splits: Utils.calculateSplits(route, 1.0)
+        }));
+
+        // Render the splits modal
+        this.renderSplitsModal(allSplits);
+    }
+
+    renderSplitsModal(allSplits) {
+        const modal = document.getElementById('splitsModal');
+        const table = document.getElementById('splitsTable');
+
+        // Find max number of splits across all routes
+        const maxSplits = Math.max(...allSplits.map(r => r.splits.length));
+
+        // Build table header
+        let headerRow1 = '<tr><th rowspan="2" class="split-number-header">Split</th>';
+        let headerRow2 = '<tr>';
+
+        allSplits.forEach(({ route }) => {
+            headerRow1 += `<th colspan="3" class="route-header">
+                <div class="route-header-content">
+                    <div class="route-color-dot" style="background: ${route.color}"></div>
+                    <span>${route.displayName}</span>
+                </div>
+            </th>`;
+            headerRow2 += '<th class="metric-header">Pace</th><th class="metric-header">Elev</th><th class="metric-header">HR</th>';
+        });
+
+        headerRow1 += '</tr>';
+        headerRow2 += '</tr>';
+
+        // Build table body
+        let bodyRows = '';
+        for (let i = 0; i < maxSplits; i++) {
+            const splitNum = i + 1;
+            let row = `<tr><td class="split-number">${splitNum} km</td>`;
+
+            allSplits.forEach(({ splits }) => {
+                const split = splits[i];
+                if (split) {
+                    const paceClass = split.isPartial ? 'partial-split' : '';
+                    row += `<td class="split-pace ${paceClass}">${Utils.formatSplitPace(split.pace)}</td>`;
+                    row += `<td class="split-elev">${Utils.formatSplitElevation(split.elevGain)}</td>`;
+                    row += `<td class="split-hr">${Utils.formatSplitHR(split.avgHR)}</td>`;
+                } else {
+                    row += '<td class="split-na">-</td><td class="split-na">-</td><td class="split-na">-</td>';
+                }
+            });
+
+            row += '</tr>';
+            bodyRows += row;
+        }
+
+        // Add totals row
+        let totalsRow = '<tr class="totals-row"><td class="split-number"><strong>Total</strong></td>';
+        allSplits.forEach(({ route }) => {
+            const avgPace = route.paces && route.paces.length > 0
+                ? route.paces.filter(p => p !== null && !isNaN(p) && p > 0 && p < 20).reduce((a, b) => a + b, 0) /
+                  route.paces.filter(p => p !== null && !isNaN(p) && p > 0 && p < 20).length
+                : null;
+            const avgHR = route.heartRates && route.heartRates.length > 0
+                ? route.heartRates.filter(h => h !== null && !isNaN(h)).reduce((a, b) => a + b, 0) /
+                  route.heartRates.filter(h => h !== null && !isNaN(h)).length
+                : null;
+
+            totalsRow += `<td class="split-pace"><strong>${Utils.formatSplitPace(avgPace)}</strong></td>`;
+            totalsRow += `<td class="split-elev"><strong>${Utils.formatSplitElevation(route.stats.elevationGain)}</strong></td>`;
+            totalsRow += `<td class="split-hr"><strong>${Utils.formatSplitHR(avgHR)}</strong></td>`;
+        });
+        totalsRow += '</tr>';
+
+        table.innerHTML = `<thead>${headerRow1}${headerRow2}</thead><tbody>${bodyRows}${totalsRow}</tbody>`;
+
+        // Show modal
+        modal.classList.add('show');
+    }
+
+    closeSplitsModal() {
+        document.getElementById('splitsModal').classList.remove('show');
+    }
+
     updateComparison() {
         const selectedRoutes = this.routes.filter(r => r.selected);
         const panel = document.getElementById('comparisonPanel');
@@ -635,13 +738,19 @@ class RouteOverlayApp {
             btn.disabled = !hasMetric(propMap[metric]);
         });
 
-        // Enable/disable Time Gap button based on timestamp data
+        // Enable/disable Time Gap and Splits buttons based on timestamp data
+        const routesWithTimestamps = selectedRoutes.filter(r =>
+            r.timestamps && r.timestamps.length > 0 && r.timestamps.some(t => t !== null)
+        );
+
         const timeGapBtn = document.querySelector('.comparison-timegap-btn');
         if (timeGapBtn) {
-            const routesWithTimestamps = selectedRoutes.filter(r =>
-                r.timestamps && r.timestamps.length > 0 && r.timestamps.some(t => t !== null)
-            );
             timeGapBtn.disabled = routesWithTimestamps.length < 2;
+        }
+
+        const splitsBtn = document.querySelector('.comparison-splits-btn');
+        if (splitsBtn) {
+            splitsBtn.disabled = routesWithTimestamps.length < 2;
         }
 
         panel.classList.add('show');
@@ -710,6 +819,14 @@ window.closeComparison = function() {
 
 window.compareTimeGap = function() {
     if (app) app.compareTimeGap();
+};
+
+window.compareSplits = function() {
+    if (app) app.compareSplits();
+};
+
+window.closeSplitsModal = function() {
+    if (app) app.closeSplitsModal();
 };
 
 // Load Google Maps API

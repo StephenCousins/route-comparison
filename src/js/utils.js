@@ -423,5 +423,150 @@ export const Utils = {
         } else {
             return `${sign}${secs}s`;
         }
+    },
+
+    // Split Comparison utilities
+    findIndexAtDistance(distances, targetKm) {
+        if (!distances || distances.length === 0) return 0;
+        if (targetKm <= 0) return 0;
+        if (targetKm >= distances[distances.length - 1]) return distances.length - 1;
+
+        let low = 0;
+        let high = distances.length - 1;
+
+        while (low < high - 1) {
+            const mid = Math.floor((low + high) / 2);
+            if (distances[mid] <= targetKm) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        return low;
+    },
+
+    calculateSplitPace(route, startIdx, endIdx) {
+        if (!route.timestamps || startIdx >= endIdx) return null;
+
+        const startTime = route.timestamps[startIdx];
+        const endTime = route.timestamps[endIdx];
+
+        if (!startTime || !endTime) return null;
+
+        const durationSeconds = (endTime - startTime) / 1000;
+        if (durationSeconds <= 0) return null;
+
+        // Calculate actual distance for this segment
+        let segmentDistance = 0;
+        for (let i = startIdx + 1; i <= endIdx; i++) {
+            segmentDistance += this.haversineDistance(
+                route.coordinates[i - 1],
+                route.coordinates[i]
+            );
+        }
+
+        if (segmentDistance <= 0) return null;
+
+        // Pace in min/km
+        const paceMinPerKm = (durationSeconds / 60) / segmentDistance;
+        return paceMinPerKm > 0 && paceMinPerKm < 30 ? paceMinPerKm : null;
+    },
+
+    calculateSplitElevGain(elevations, startIdx, endIdx) {
+        if (!elevations || startIdx >= endIdx) return 0;
+
+        let gain = 0;
+        for (let i = startIdx + 1; i <= endIdx; i++) {
+            const prev = elevations[i - 1];
+            const curr = elevations[i];
+            if (prev !== null && curr !== null && !isNaN(prev) && !isNaN(curr)) {
+                const diff = curr - prev;
+                if (diff > 0) gain += diff;
+            }
+        }
+        return gain;
+    },
+
+    calculateSplitAvg(arr, startIdx, endIdx) {
+        if (!arr || startIdx >= endIdx) return null;
+
+        const segment = arr.slice(startIdx, endIdx + 1);
+        const valid = segment.filter(v => v !== null && v !== undefined && !isNaN(v));
+
+        if (valid.length === 0) return null;
+        return valid.reduce((a, b) => a + b, 0) / valid.length;
+    },
+
+    calculateSplits(route, splitDistanceKm = 1.0) {
+        if (!route || !route.coordinates || route.coordinates.length < 2) {
+            return [];
+        }
+
+        // Build cumulative distances
+        const distances = [0];
+        for (let i = 1; i < route.coordinates.length; i++) {
+            distances.push(
+                distances[i - 1] +
+                this.haversineDistance(route.coordinates[i - 1], route.coordinates[i])
+            );
+        }
+
+        const totalDistance = distances[distances.length - 1];
+        const splits = [];
+        let splitNum = 1;
+        let currentKm = 0;
+
+        while (currentKm < totalDistance) {
+            const startKm = currentKm;
+            const endKm = Math.min(currentKm + splitDistanceKm, totalDistance);
+            const isPartialSplit = (endKm - startKm) < splitDistanceKm * 0.9;
+
+            // Find indices for this split
+            const startIdx = this.findIndexAtDistance(distances, startKm);
+            const endIdx = this.findIndexAtDistance(distances, endKm);
+
+            // Calculate metrics for split
+            const split = {
+                number: splitNum,
+                startKm: startKm,
+                endKm: endKm,
+                distance: endKm - startKm,
+                isPartial: isPartialSplit,
+                pace: this.calculateSplitPace(route, startIdx, endIdx),
+                elevGain: this.calculateSplitElevGain(route.elevations, startIdx, endIdx),
+                avgHR: this.calculateSplitAvg(route.heartRates, startIdx, endIdx)
+            };
+
+            splits.push(split);
+            currentKm += splitDistanceKm;
+            splitNum++;
+        }
+
+        return splits;
+    },
+
+    formatSplitPace(pace) {
+        if (pace === null || pace === undefined || isNaN(pace) || !isFinite(pace)) {
+            return 'N/A';
+        }
+        const mins = Math.floor(pace);
+        const secs = Math.round((pace - mins) * 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    },
+
+    formatSplitElevation(meters) {
+        if (meters === null || meters === undefined || isNaN(meters)) {
+            return 'N/A';
+        }
+        const rounded = Math.round(meters);
+        return rounded >= 0 ? `+${rounded}m` : `${rounded}m`;
+    },
+
+    formatSplitHR(hr) {
+        if (hr === null || hr === undefined || isNaN(hr)) {
+            return 'N/A';
+        }
+        return Math.round(hr).toString();
     }
 };
