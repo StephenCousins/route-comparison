@@ -714,6 +714,175 @@ class RouteOverlayApp {
         document.getElementById('splitsModal').classList.remove('show');
     }
 
+    compareSegment() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 2) {
+            alert('Please select at least 2 routes to compare segments');
+            return;
+        }
+
+        // Check for timestamp data
+        const routesWithTimestamps = selectedRoutes.filter(r =>
+            r.timestamps && r.timestamps.length > 0 && r.timestamps.some(t => t !== null)
+        );
+
+        if (routesWithTimestamps.length < 2) {
+            alert('Segment analysis requires at least 2 routes with timestamp data.');
+            return;
+        }
+
+        // Store selected routes for analysis
+        this.segmentRoutes = routesWithTimestamps;
+
+        // Find max distance across all routes for input validation hint
+        const minMaxDistance = Math.min(...routesWithTimestamps.map(r => r.stats.distance));
+        document.getElementById('segmentEnd').max = minMaxDistance.toFixed(1);
+
+        // Clear previous results
+        document.getElementById('segmentResults').innerHTML = '';
+
+        // Show modal
+        document.getElementById('segmentModal').classList.add('show');
+    }
+
+    analyzeSegment() {
+        const startKm = parseFloat(document.getElementById('segmentStart').value);
+        const endKm = parseFloat(document.getElementById('segmentEnd').value);
+
+        // Validate inputs
+        if (isNaN(startKm) || isNaN(endKm)) {
+            alert('Please enter valid distance values');
+            return;
+        }
+
+        if (startKm >= endKm) {
+            alert('Start distance must be less than end distance');
+            return;
+        }
+
+        if (startKm < 0) {
+            alert('Start distance cannot be negative');
+            return;
+        }
+
+        if (!this.segmentRoutes || this.segmentRoutes.length < 2) {
+            alert('No routes selected for comparison');
+            return;
+        }
+
+        // Calculate segment metrics for each route
+        const results = this.segmentRoutes.map(route => ({
+            route: route,
+            metrics: Utils.calculateSegmentMetrics(route, startKm, endKm)
+        }));
+
+        // Check if all routes have valid data for this segment
+        const validResults = results.filter(r => r.metrics !== null);
+
+        if (validResults.length < 2) {
+            alert(`Segment ${startKm.toFixed(1)}-${endKm.toFixed(1)} km is outside the range of one or more routes`);
+            return;
+        }
+
+        // Render results
+        this.renderSegmentResults(startKm, endKm, validResults);
+    }
+
+    renderSegmentResults(startKm, endKm, results) {
+        const container = document.getElementById('segmentResults');
+        const segmentDistance = endKm - startKm;
+
+        // Build results table
+        let html = `
+            <div class="segment-header-info">
+                <strong>Segment: ${startKm.toFixed(1)} km - ${endKm.toFixed(1)} km</strong>
+                <span class="segment-distance">(${segmentDistance.toFixed(2)} km)</span>
+            </div>
+            <table class="segment-table">
+                <thead>
+                    <tr>
+                        <th>Route</th>
+                        <th>Time</th>
+                        <th>Pace</th>
+                        <th>Elev +</th>
+                        <th>Elev -</th>
+                        <th>Avg HR</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        results.forEach(({ route, metrics }) => {
+            html += `
+                <tr>
+                    <td class="route-cell">
+                        <div class="route-color-dot" style="background: ${route.color}"></div>
+                        <span>${route.displayName}</span>
+                    </td>
+                    <td class="time-cell">${Utils.formatSegmentDuration(metrics.duration)}</td>
+                    <td class="pace-cell">${Utils.formatSplitPace(metrics.pace)}</td>
+                    <td class="elev-cell">${Utils.formatSplitElevation(metrics.elevGain)}</td>
+                    <td class="elev-cell">${Utils.formatSplitElevation(-metrics.elevLoss)}</td>
+                    <td class="hr-cell">${Utils.formatSplitHR(metrics.avgHR)}</td>
+                </tr>
+            `;
+        });
+
+        // Add difference row if exactly 2 routes
+        if (results.length === 2) {
+            const [r1, r2] = results;
+            const timeDiff = (r2.metrics.duration || 0) - (r1.metrics.duration || 0);
+            const paceDiff = (r2.metrics.pace || 0) - (r1.metrics.pace || 0);
+            const elevGainDiff = (r2.metrics.elevGain || 0) - (r1.metrics.elevGain || 0);
+            const elevLossDiff = (r2.metrics.elevLoss || 0) - (r1.metrics.elevLoss || 0);
+            const hrDiff = (r2.metrics.avgHR || 0) - (r1.metrics.avgHR || 0);
+
+            html += `
+                <tr class="diff-row">
+                    <td><strong>Difference</strong></td>
+                    <td class="time-cell ${timeDiff > 0 ? 'slower' : 'faster'}">${this.formatDiff(timeDiff, 'time')}</td>
+                    <td class="pace-cell ${paceDiff > 0 ? 'slower' : 'faster'}">${this.formatDiff(paceDiff, 'pace')}</td>
+                    <td class="elev-cell">${this.formatDiff(elevGainDiff, 'elev')}</td>
+                    <td class="elev-cell">${this.formatDiff(-elevLossDiff, 'elev')}</td>
+                    <td class="hr-cell">${this.formatDiff(hrDiff, 'hr')}</td>
+                </tr>
+            `;
+        }
+
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    }
+
+    formatDiff(value, type) {
+        if (value === null || value === undefined || isNaN(value)) return 'N/A';
+
+        const sign = value >= 0 ? '+' : '';
+
+        switch (type) {
+            case 'time':
+                const mins = Math.floor(Math.abs(value) / 60);
+                const secs = Math.round(Math.abs(value) % 60);
+                const timeStr = mins > 0 ? `${mins}:${secs.toString().padStart(2, '0')}` : `${secs}s`;
+                return `${sign}${value >= 0 ? '' : '-'}${timeStr}`;
+            case 'pace':
+                const pMins = Math.floor(Math.abs(value));
+                const pSecs = Math.round((Math.abs(value) - pMins) * 60);
+                return `${sign}${pMins}:${pSecs.toString().padStart(2, '0')}`;
+            case 'elev':
+                return `${sign}${Math.round(value)}m`;
+            case 'hr':
+                return `${sign}${Math.round(value)}`;
+            default:
+                return `${sign}${value.toFixed(1)}`;
+        }
+    }
+
+    closeSegmentModal() {
+        document.getElementById('segmentModal').classList.remove('show');
+        this.segmentRoutes = null;
+    }
+
     updateComparison() {
         const selectedRoutes = this.routes.filter(r => r.selected);
         const panel = document.getElementById('comparisonPanel');
@@ -751,6 +920,11 @@ class RouteOverlayApp {
         const splitsBtn = document.querySelector('.comparison-splits-btn');
         if (splitsBtn) {
             splitsBtn.disabled = routesWithTimestamps.length < 2;
+        }
+
+        const segmentBtn = document.querySelector('.comparison-segment-btn');
+        if (segmentBtn) {
+            segmentBtn.disabled = routesWithTimestamps.length < 2;
         }
 
         panel.classList.add('show');
@@ -827,6 +1001,18 @@ window.compareSplits = function() {
 
 window.closeSplitsModal = function() {
     if (app) app.closeSplitsModal();
+};
+
+window.compareSegment = function() {
+    if (app) app.compareSegment();
+};
+
+window.analyzeSegment = function() {
+    if (app) app.analyzeSegment();
+};
+
+window.closeSegmentModal = function() {
+    if (app) app.closeSegmentModal();
 };
 
 // Load Google Maps API

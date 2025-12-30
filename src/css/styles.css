@@ -1494,3 +1494,188 @@ tr:hover {
 #splitsTable tbody tr:hover .split-number {
     background: #e8f0fe;
 }
+
+/* Segment Analysis Button */
+.comparison-segment-btn {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+.comparison-segment-btn:hover {
+    background: linear-gradient(135deg, #e080e8 0%, #e04a5f 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(245, 87, 108, 0.4);
+}
+.comparison-segment-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Segment Modal Styles */
+#segmentModal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+}
+#segmentModal.show {
+    display: flex;
+}
+.segment-modal-content {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    max-width: 95%;
+    width: 700px;
+    max-height: 85vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.segment-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #e0e0e0;
+    flex-shrink: 0;
+}
+.segment-modal-header h2 {
+    font-size: 18px;
+    color: #1a73e8;
+    font-weight: 600;
+    margin: 0;
+}
+.segment-input-section {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+.segment-inputs {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+.segment-inputs label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #333;
+}
+.segment-inputs label span {
+    font-weight: 500;
+}
+.segment-inputs input {
+    width: 80px;
+    padding: 8px 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 14px;
+    text-align: center;
+}
+.segment-inputs input:focus {
+    outline: none;
+    border-color: #1a73e8;
+}
+.segment-inputs .unit {
+    color: #666;
+    font-weight: normal;
+}
+.analyze-segment-btn {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+.analyze-segment-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(245, 87, 108, 0.4);
+}
+.segment-results {
+    flex: 1;
+    overflow: auto;
+}
+.segment-header-info {
+    margin-bottom: 15px;
+    font-size: 16px;
+    color: #333;
+}
+.segment-header-info strong {
+    color: #1a73e8;
+}
+.segment-distance {
+    color: #666;
+    margin-left: 8px;
+}
+.segment-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.segment-table th,
+.segment-table td {
+    padding: 12px 15px;
+    text-align: center;
+    border-bottom: 1px solid #e0e0e0;
+}
+.segment-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #5f6368;
+}
+.segment-table .route-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+}
+.segment-table .time-cell {
+    color: #1a73e8;
+    font-weight: 600;
+}
+.segment-table .pace-cell {
+    color: #1a73e8;
+}
+.segment-table .elev-cell {
+    color: #34a853;
+}
+.segment-table .hr-cell {
+    color: #ea4335;
+}
+.segment-table .diff-row {
+    background: #f0f7ff;
+    border-top: 2px solid #1a73e8;
+}
+.segment-table .diff-row td {
+    font-weight: 500;
+}
+.segment-table .faster {
+    color: #34a853 !important;
+}
+.segment-table .slower {
+    color: #ea4335 !important;
+}

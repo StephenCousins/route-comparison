@@ -80,6 +80,7 @@
                 <button class="comparison-elevation-btn" data-metric="power" onclick="compareMetric('power')">Power</button>
                 <button class="comparison-timegap-btn" data-metric="timegap" onclick="compareTimeGap()">Time Gap</button>
                 <button class="comparison-splits-btn" data-metric="splits" onclick="compareSplits()">Splits</button>
+                <button class="comparison-segment-btn" data-metric="segment" onclick="compareSegment()">Segment</button>
                 <button class="comparison-close" onclick="closeComparison()">Close</button>
             </div>
         </div>
@@ -152,6 +153,32 @@
             <div class="splits-table-container">
                 <table id="splitsTable"></table>
             </div>
+        </div>
+    </div>
+
+    <!-- Segment Analysis Modal -->
+    <div id="segmentModal">
+        <div class="segment-modal-content">
+            <div class="segment-modal-header">
+                <h2>Segment Analysis</h2>
+                <button class="modal-close" onclick="closeSegmentModal()">Close</button>
+            </div>
+            <div class="segment-input-section">
+                <div class="segment-inputs">
+                    <label>
+                        <span>From:</span>
+                        <input type="number" id="segmentStart" step="0.1" min="0" value="0" placeholder="0.0">
+                        <span class="unit">km</span>
+                    </label>
+                    <label>
+                        <span>To:</span>
+                        <input type="number" id="segmentEnd" step="0.1" min="0" value="1" placeholder="1.0">
+                        <span class="unit">km</span>
+                    </label>
+                </div>
+                <button id="analyzeSegmentBtn" class="analyze-segment-btn" onclick="analyzeSegment()">Compare Segment</button>
+            </div>
+            <div id="segmentResults" class="segment-results"></div>
         </div>
     </div>
 

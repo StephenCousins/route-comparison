@@ -568,5 +568,83 @@ export const Utils = {
             return 'N/A';
         }
         return Math.round(hr).toString();
+    },
+
+    // Segment Analysis utilities
+    calculateSplitElevLoss(elevations, startIdx, endIdx) {
+        if (!elevations || startIdx >= endIdx) return 0;
+
+        let loss = 0;
+        for (let i = startIdx + 1; i <= endIdx; i++) {
+            const prev = elevations[i - 1];
+            const curr = elevations[i];
+            if (prev !== null && curr !== null && !isNaN(prev) && !isNaN(curr)) {
+                const diff = curr - prev;
+                if (diff < 0) loss += Math.abs(diff);
+            }
+        }
+        return loss;
+    },
+
+    calculateSegmentDuration(route, startIdx, endIdx) {
+        if (!route.timestamps || startIdx >= endIdx) return null;
+
+        const startTime = route.timestamps[startIdx];
+        const endTime = route.timestamps[endIdx];
+
+        if (!startTime || !endTime) return null;
+
+        return (endTime - startTime) / 1000; // seconds
+    },
+
+    calculateSegmentMetrics(route, startKm, endKm) {
+        if (!route || !route.coordinates || route.coordinates.length < 2) {
+            return null;
+        }
+
+        // Build cumulative distances
+        const distances = [0];
+        for (let i = 1; i < route.coordinates.length; i++) {
+            distances.push(
+                distances[i - 1] +
+                this.haversineDistance(route.coordinates[i - 1], route.coordinates[i])
+            );
+        }
+
+        const totalDistance = distances[distances.length - 1];
+
+        // Validate range
+        if (startKm >= endKm || startKm < 0 || endKm > totalDistance) {
+            return null;
+        }
+
+        // Find indices for segment boundaries
+        const startIdx = this.findIndexAtDistance(distances, startKm);
+        const endIdx = this.findIndexAtDistance(distances, endKm);
+
+        if (startIdx >= endIdx) return null;
+
+        // Calculate segment metrics
+        return {
+            startKm: startKm,
+            endKm: endKm,
+            actualDistance: distances[endIdx] - distances[startIdx],
+            duration: this.calculateSegmentDuration(route, startIdx, endIdx),
+            pace: this.calculateSplitPace(route, startIdx, endIdx),
+            elevGain: this.calculateSplitElevGain(route.elevations, startIdx, endIdx),
+            elevLoss: this.calculateSplitElevLoss(route.elevations, startIdx, endIdx),
+            avgHR: this.calculateSplitAvg(route.heartRates, startIdx, endIdx),
+            avgCadence: this.calculateSplitAvg(route.cadences, startIdx, endIdx),
+            avgPower: this.calculateSplitAvg(route.powers, startIdx, endIdx)
+        };
+    },
+
+    formatSegmentDuration(seconds) {
+        if (seconds === null || seconds === undefined || isNaN(seconds)) {
+            return 'N/A';
+        }
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.round(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 };
