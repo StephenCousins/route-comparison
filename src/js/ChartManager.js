@@ -530,6 +530,236 @@ export class ChartManager {
         this.originalImage = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
     }
 
+    showTimeGapChart(timeGapData) {
+        document.getElementById('modalTitle').textContent =
+            `Time Gap Analysis (Reference: ${timeGapData.referenceRoute.displayName})`;
+        this.modal.classList.add('show');
+        this.drawTimeGapChart(timeGapData);
+    }
+
+    drawTimeGapChart(timeGapData) {
+        this.currentData = {
+            timeGapData,
+            isTimeGap: true,
+            routes: [timeGapData.referenceRoute, ...timeGapData.gaps[0]?.comparisons.map(c => c.route) || []]
+        };
+
+        this.canvas.width = this.canvas.offsetWidth;
+        this.canvas.height = this.canvas.offsetHeight;
+
+        const padding = { left: 80, right: 70, top: 50, bottom: 70 };
+        const chartWidth = this.canvas.width - padding.left - padding.right;
+        const chartHeight = this.canvas.height - padding.top - padding.bottom;
+
+        // Find max gap for Y-axis scaling (symmetric around zero)
+        let maxGap = 0;
+        timeGapData.gaps.forEach(point => {
+            point.comparisons.forEach(comp => {
+                maxGap = Math.max(maxGap, Math.abs(comp.gap));
+            });
+        });
+
+        // Add 10% padding and round to nice number
+        maxGap = Math.ceil(maxGap * 1.1 / 10) * 10;
+        if (maxGap < 30) maxGap = 30; // Minimum range
+
+        const maxDistance = timeGapData.maxDistance;
+
+        // Clear canvas
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Draw grid
+        this.ctx.strokeStyle = '#e0e0e0';
+        this.ctx.lineWidth = 1;
+
+        // Horizontal grid lines (time gaps)
+        const ySteps = 6;
+        for (let i = 0; i <= ySteps; i++) {
+            const y = padding.top + (chartHeight / ySteps) * i;
+            this.ctx.beginPath();
+            this.ctx.moveTo(padding.left, y);
+            this.ctx.lineTo(padding.left + chartWidth, y);
+            this.ctx.stroke();
+
+            // Y-axis labels
+            const gapValue = maxGap - (2 * maxGap / ySteps) * i;
+            this.ctx.fillStyle = '#666';
+            this.ctx.font = '11px sans-serif';
+            this.ctx.textAlign = 'right';
+            this.ctx.fillText(Utils.formatTimeDelta(gapValue), padding.left - 8, y + 4);
+        }
+
+        // Vertical grid lines (distance)
+        for (let i = 0; i <= 10; i++) {
+            const x = padding.left + (chartWidth / 10) * i;
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, padding.top);
+            this.ctx.lineTo(x, padding.top + chartHeight);
+            this.ctx.stroke();
+
+            const dist = (maxDistance / 10) * i;
+            this.ctx.fillStyle = '#666';
+            this.ctx.font = '11px sans-serif';
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(Utils.formatDistance(dist), x, this.canvas.height - padding.bottom + 20);
+        }
+
+        // Draw zero line (reference)
+        const zeroY = padding.top + chartHeight / 2;
+        this.ctx.strokeStyle = '#333';
+        this.ctx.lineWidth = 2;
+        this.ctx.setLineDash([5, 5]);
+        this.ctx.beginPath();
+        this.ctx.moveTo(padding.left, zeroY);
+        this.ctx.lineTo(padding.left + chartWidth, zeroY);
+        this.ctx.stroke();
+        this.ctx.setLineDash([]);
+
+        // Get unique comparison routes
+        const compRoutes = new Map();
+        timeGapData.gaps.forEach(point => {
+            point.comparisons.forEach(comp => {
+                if (!compRoutes.has(comp.route.id)) {
+                    compRoutes.set(comp.route.id, comp.route);
+                }
+            });
+        });
+
+        // Draw each comparison route's gap line
+        compRoutes.forEach((route) => {
+            this.ctx.strokeStyle = route.color;
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+
+            let firstPoint = true;
+            timeGapData.gaps.forEach(point => {
+                const comp = point.comparisons.find(c => c.route.id === route.id);
+                if (comp) {
+                    const x = padding.left + (point.distance / maxDistance) * chartWidth;
+                    const y = zeroY - (comp.gap / maxGap) * (chartHeight / 2);
+
+                    if (firstPoint) {
+                        this.ctx.moveTo(x, y);
+                        firstPoint = false;
+                    } else {
+                        this.ctx.lineTo(x, y);
+                    }
+                }
+            });
+            this.ctx.stroke();
+
+            // Fill area between line and zero
+            this.ctx.globalAlpha = 0.15;
+            this.ctx.beginPath();
+            firstPoint = true;
+            let lastX = padding.left;
+
+            timeGapData.gaps.forEach(point => {
+                const comp = point.comparisons.find(c => c.route.id === route.id);
+                if (comp) {
+                    const x = padding.left + (point.distance / maxDistance) * chartWidth;
+                    const y = zeroY - (comp.gap / maxGap) * (chartHeight / 2);
+
+                    if (firstPoint) {
+                        this.ctx.moveTo(x, zeroY);
+                        this.ctx.lineTo(x, y);
+                        firstPoint = false;
+                    } else {
+                        this.ctx.lineTo(x, y);
+                    }
+                    lastX = x;
+                }
+            });
+
+            this.ctx.lineTo(lastX, zeroY);
+            this.ctx.closePath();
+            this.ctx.fillStyle = route.color;
+            this.ctx.fill();
+            this.ctx.globalAlpha = 1.0;
+        });
+
+        // Draw axes
+        this.ctx.strokeStyle = '#333';
+        this.ctx.lineWidth = 2;
+        this.ctx.beginPath();
+        this.ctx.moveTo(padding.left, padding.top);
+        this.ctx.lineTo(padding.left, padding.top + chartHeight);
+        this.ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
+        this.ctx.stroke();
+
+        // Y-axis label
+        this.ctx.save();
+        this.ctx.translate(20, this.canvas.height / 2);
+        this.ctx.rotate(-Math.PI / 2);
+        this.ctx.fillStyle = '#666';
+        this.ctx.font = '14px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Time Gap (+ behind, - ahead)', 0, 0);
+        this.ctx.restore();
+
+        // X-axis label
+        this.ctx.fillStyle = '#333';
+        this.ctx.font = '14px sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Distance', this.canvas.width / 2, this.canvas.height - 10);
+
+        // Update legend for time gap mode
+        this.updateTimeGapLegend(timeGapData);
+        this.originalImage = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+    }
+
+    updateTimeGapLegend(timeGapData) {
+        const legend = document.getElementById('chartLegend');
+        legend.innerHTML = '';
+
+        // Reference route
+        const refItem = document.createElement('div');
+        refItem.className = 'legend-item';
+        refItem.innerHTML = `
+            <div class="legend-color" style="background: #333; height: 2px; border: 1px dashed #333;"></div>
+            <span class="legend-label"><strong>Reference:</strong> ${timeGapData.referenceRoute.displayName}</span>
+        `;
+        legend.appendChild(refItem);
+
+        // Comparison routes
+        const compRoutes = new Map();
+        timeGapData.gaps.forEach(point => {
+            point.comparisons.forEach(comp => {
+                if (!compRoutes.has(comp.route.id)) {
+                    compRoutes.set(comp.route.id, comp.route);
+                }
+            });
+        });
+
+        compRoutes.forEach(route => {
+            // Find final gap for this route
+            let finalGap = null;
+            for (let i = timeGapData.gaps.length - 1; i >= 0; i--) {
+                const comp = timeGapData.gaps[i].comparisons.find(c => c.route.id === route.id);
+                if (comp) {
+                    finalGap = comp.gap;
+                    break;
+                }
+            }
+
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+
+            const color = document.createElement('div');
+            color.className = 'legend-color';
+            color.style.background = route.color;
+
+            const label = document.createElement('span');
+            label.className = 'legend-label';
+            const gapText = finalGap !== null ? ` (Final: ${Utils.formatTimeDelta(finalGap)})` : '';
+            label.textContent = `${route.displayName}${gapText}`;
+
+            item.appendChild(color);
+            item.appendChild(label);
+            legend.appendChild(item);
+        });
+    }
+
     updateLegend() {
         if (!this.currentData) return;
 

@@ -290,5 +290,138 @@ export const Utils = {
         }
 
         return cleaned;
+    },
+
+    // Time Gap Analysis utilities
+    buildTimeDistanceMap(route) {
+        const map = { distances: [0], times: [0] };
+
+        if (!route.timestamps || route.timestamps.length === 0) {
+            return null;
+        }
+
+        const startTime = route.timestamps[0]?.getTime();
+        if (!startTime) return null;
+
+        let cumulativeDistance = 0;
+
+        for (let i = 1; i < route.coordinates.length; i++) {
+            const dist = this.haversineDistance(route.coordinates[i-1], route.coordinates[i]);
+            cumulativeDistance += dist;
+
+            if (route.timestamps[i]) {
+                const elapsedTime = (route.timestamps[i].getTime() - startTime) / 1000;
+                map.distances.push(cumulativeDistance);
+                map.times.push(elapsedTime);
+            }
+        }
+
+        return map.distances.length > 1 ? map : null;
+    },
+
+    getTimeAtDistance(map, targetDistance) {
+        if (!map || map.distances.length < 2) return null;
+
+        // If target is beyond the route, return null
+        if (targetDistance > map.distances[map.distances.length - 1]) {
+            return null;
+        }
+
+        // If target is at or before start, return 0
+        if (targetDistance <= 0) {
+            return 0;
+        }
+
+        // Binary search for the interval containing targetDistance
+        let low = 0;
+        let high = map.distances.length - 1;
+
+        while (low < high - 1) {
+            const mid = Math.floor((low + high) / 2);
+            if (map.distances[mid] <= targetDistance) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        // Linear interpolation between low and high
+        const d1 = map.distances[low];
+        const d2 = map.distances[high];
+        const t1 = map.times[low];
+        const t2 = map.times[high];
+
+        if (d2 === d1) return t1;
+
+        const ratio = (targetDistance - d1) / (d2 - d1);
+        return t1 + ratio * (t2 - t1);
+    },
+
+    calculateTimeGaps(referenceRoute, comparisonRoutes, sampleInterval = 0.1) {
+        const refMap = this.buildTimeDistanceMap(referenceRoute);
+        if (!refMap) return null;
+
+        const compMaps = comparisonRoutes.map(r => ({
+            route: r,
+            map: this.buildTimeDistanceMap(r)
+        })).filter(c => c.map !== null);
+
+        if (compMaps.length === 0) return null;
+
+        // Find the minimum max distance across all routes
+        const maxDistances = [refMap.distances[refMap.distances.length - 1]];
+        compMaps.forEach(c => {
+            maxDistances.push(c.map.distances[c.map.distances.length - 1]);
+        });
+        const maxDist = Math.min(...maxDistances);
+
+        // Sample at regular intervals
+        const gaps = [];
+        for (let d = 0; d <= maxDist; d += sampleInterval) {
+            const refTime = this.getTimeAtDistance(refMap, d);
+            if (refTime === null) continue;
+
+            const point = {
+                distance: d,
+                referenceTime: refTime,
+                comparisons: []
+            };
+
+            compMaps.forEach(c => {
+                const compTime = this.getTimeAtDistance(c.map, d);
+                if (compTime !== null) {
+                    point.comparisons.push({
+                        route: c.route,
+                        time: compTime,
+                        gap: compTime - refTime  // Positive = behind, Negative = ahead
+                    });
+                }
+            });
+
+            if (point.comparisons.length > 0) {
+                gaps.push(point);
+            }
+        }
+
+        return {
+            referenceRoute,
+            gaps,
+            maxDistance: maxDist
+        };
+    },
+
+    formatTimeDelta(seconds) {
+        if (seconds === null || seconds === undefined || isNaN(seconds)) return 'N/A';
+
+        const sign = seconds >= 0 ? '+' : '-';
+        const absSeconds = Math.abs(seconds);
+        const mins = Math.floor(absSeconds / 60);
+        const secs = Math.floor(absSeconds % 60);
+
+        if (mins > 0) {
+            return `${sign}${mins}:${secs.toString().padStart(2, '0')}`;
+        } else {
+            return `${sign}${secs}s`;
+        }
     }
 };

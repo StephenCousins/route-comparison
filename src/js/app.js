@@ -576,6 +576,41 @@ class RouteOverlayApp {
         this.chartManager.show(validRoutes, metricType, config.label, config.format);
     }
 
+    compareTimeGap() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        // Check if we have at least 2 routes
+        if (selectedRoutes.length < 2) {
+            alert('Please select at least 2 routes to compare time gaps');
+            return;
+        }
+
+        // Check if routes have timestamp data
+        const routesWithTimestamps = selectedRoutes.filter(r =>
+            r.timestamps && r.timestamps.length > 0 && r.timestamps.some(t => t !== null)
+        );
+
+        if (routesWithTimestamps.length < 2) {
+            alert('Time Gap analysis requires at least 2 routes with timestamp data. Routes from GPX/FIT files with recorded time are needed.');
+            return;
+        }
+
+        // First selected route is the reference
+        const referenceRoute = routesWithTimestamps[0];
+        const comparisonRoutes = routesWithTimestamps.slice(1);
+
+        // Calculate time gaps
+        const timeGapData = Utils.calculateTimeGaps(referenceRoute, comparisonRoutes);
+
+        if (!timeGapData || timeGapData.gaps.length === 0) {
+            alert('Could not calculate time gaps. Routes may not have sufficient timestamp data.');
+            return;
+        }
+
+        // Show the time gap chart
+        this.chartManager.showTimeGapChart(timeGapData);
+    }
+
     updateComparison() {
         const selectedRoutes = this.routes.filter(r => r.selected);
         const panel = document.getElementById('comparisonPanel');
@@ -599,6 +634,15 @@ class RouteOverlayApp {
             };
             btn.disabled = !hasMetric(propMap[metric]);
         });
+
+        // Enable/disable Time Gap button based on timestamp data
+        const timeGapBtn = document.querySelector('.comparison-timegap-btn');
+        if (timeGapBtn) {
+            const routesWithTimestamps = selectedRoutes.filter(r =>
+                r.timestamps && r.timestamps.length > 0 && r.timestamps.some(t => t !== null)
+            );
+            timeGapBtn.disabled = routesWithTimestamps.length < 2;
+        }
 
         panel.classList.add('show');
 
@@ -662,6 +706,10 @@ window.compareMetric = function(type) {
 
 window.closeComparison = function() {
     if (app) app.closeComparison();
+};
+
+window.compareTimeGap = function() {
+    if (app) app.compareTimeGap();
 };
 
 // Load Google Maps API
