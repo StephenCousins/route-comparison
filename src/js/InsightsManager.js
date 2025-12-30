@@ -418,6 +418,10 @@ export class InsightsManager {
         const gradientInsights = this.calculateGradientInsights(route);
         insights.push(...gradientInsights);
 
+        // HR/Power Zone Analysis
+        const zoneInsights = this.calculateZoneInsights(route);
+        insights.push(...zoneInsights);
+
         return insights;
     }
 
@@ -736,6 +740,87 @@ export class InsightsManager {
         }
 
         return insights;
+    }
+
+    // HR/Power Zone Analysis
+    calculateZoneInsights(route) {
+        const insights = [];
+
+        // Calculate HR zones if available
+        if (route.heartRates && route.heartRates.length > 10) {
+            const hrZones = Utils.calculateZones(route.heartRates, route.timestamps, 'heartRate');
+            if (hrZones) {
+                // Create zone distribution bar
+                const barHtml = this.createZoneBar(hrZones.zones);
+                insights.push(this.createZoneCard('HR Zones', barHtml, `${hrZones.minVal}-${hrZones.maxVal} bpm range`));
+
+                // Dominant zone insight
+                const dominant = hrZones.zones[hrZones.dominantZone - 1];
+                insights.push(this.createInsightCard(
+                    'neutral',
+                    `Zone ${dominant.zone}: ${dominant.name}`,
+                    `${dominant.percent}% of time`,
+                    `${dominant.min}-${dominant.max} bpm • Most time spent here`
+                ));
+
+                // High intensity time (Zone 4-5)
+                const highIntensity = hrZones.zones[3].percent + hrZones.zones[4].percent;
+                if (highIntensity > 0) {
+                    const type = highIntensity > 30 ? 'negative' : highIntensity > 15 ? 'neutral' : 'positive';
+                    insights.push(this.createInsightCard(
+                        type,
+                        'High Intensity',
+                        `${highIntensity}% in Z4-Z5`,
+                        `Time at threshold and above`
+                    ));
+                }
+            }
+        }
+
+        // Calculate Power zones if available
+        if (route.powers && route.powers.length > 10) {
+            const powerZones = Utils.calculateZones(route.powers, route.timestamps, 'power');
+            if (powerZones) {
+                const barHtml = this.createZoneBar(powerZones.zones);
+                insights.push(this.createZoneCard('Power Zones', barHtml, `${powerZones.minVal}-${powerZones.maxVal}W range`));
+
+                const dominant = powerZones.zones[powerZones.dominantZone - 1];
+                insights.push(this.createInsightCard(
+                    'neutral',
+                    `Power Z${dominant.zone}`,
+                    `${dominant.percent}% of time`,
+                    `${dominant.min}-${dominant.max}W • Dominant power zone`
+                ));
+            }
+        }
+
+        return insights;
+    }
+
+    createZoneBar(zones) {
+        let html = '<div class="zone-bar">';
+        zones.forEach(z => {
+            if (z.percent > 0) {
+                html += `<div class="zone-segment" style="width: ${z.percent}%; background: ${z.color};" title="Z${z.zone}: ${z.percent}%"></div>`;
+            }
+        });
+        html += '</div>';
+        html += '<div class="zone-labels">';
+        zones.forEach(z => {
+            html += `<span class="zone-label" style="color: ${z.color};">Z${z.zone}</span>`;
+        });
+        html += '</div>';
+        return html;
+    }
+
+    createZoneCard(title, barHtml, description) {
+        return `
+            <div class="insight-card zone-card neutral">
+                <div class="insight-title">${title}</div>
+                <div class="insight-value">${barHtml}</div>
+                <div class="insight-description">${description}</div>
+            </div>
+        `;
     }
 
     createInsightCard(type, title, value, description) {

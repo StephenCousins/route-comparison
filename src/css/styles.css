@@ -898,6 +898,34 @@ tr:hover {
     line-height: 1.4;
 }
 
+/* Zone Bar Styles */
+.zone-card .insight-value {
+    font-size: 16px;
+}
+.zone-bar {
+    display: flex;
+    height: 24px;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 6px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+}
+.zone-segment {
+    transition: all 0.2s;
+}
+.zone-segment:hover {
+    filter: brightness(1.1);
+}
+.zone-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 600;
+}
+.zone-label {
+    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
 .metric-insights-text {
     background: #f8f9fa;
     border-radius: 8px;
