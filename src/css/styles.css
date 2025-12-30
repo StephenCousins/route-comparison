@@ -1519,6 +1519,30 @@ tr:hover {
     box-shadow: none;
 }
 
+/* Race Button */
+.comparison-race-btn {
+    background: linear-gradient(135deg, #ff9a56 0%, #ff6b35 100%);
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+.comparison-race-btn:hover {
+    background: linear-gradient(135deg, #ff8a43 0%, #ff5722 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(255, 107, 53, 0.4);
+}
+.comparison-race-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
 /* Segment Modal Styles */
 #segmentModal {
     display: none;

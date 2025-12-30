@@ -883,6 +883,25 @@ class RouteOverlayApp {
         this.segmentRoutes = null;
     }
 
+    startRace() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 2) {
+            alert('Select at least 2 routes to race');
+            return;
+        }
+
+        const success = this.animationManager.startRace(selectedRoutes);
+        if (success) {
+            this.updateUI();
+        }
+    }
+
+    stopRace() {
+        this.animationManager.stopRace();
+        this.updateUI();
+    }
+
     updateComparison() {
         const selectedRoutes = this.routes.filter(r => r.selected);
         const panel = document.getElementById('comparisonPanel');
@@ -925,6 +944,11 @@ class RouteOverlayApp {
         const segmentBtn = document.querySelector('.comparison-segment-btn');
         if (segmentBtn) {
             segmentBtn.disabled = routesWithTimestamps.length < 2;
+        }
+
+        const raceBtn = document.querySelector('.comparison-race-btn');
+        if (raceBtn) {
+            raceBtn.disabled = routesWithTimestamps.length < 2;
         }
 
         panel.classList.add('show');
@@ -1013,6 +1037,14 @@ window.analyzeSegment = function() {
 
 window.closeSegmentModal = function() {
     if (app) app.closeSegmentModal();
+};
+
+window.startRace = function() {
+    if (app) app.startRace();
+};
+
+window.stopRace = function() {
+    if (app) app.stopRace();
 };
 
 // Load Google Maps API
