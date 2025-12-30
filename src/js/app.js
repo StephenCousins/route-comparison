@@ -501,6 +501,19 @@ class RouteOverlayApp {
         };
         actions.appendChild(insightsBtn);
 
+        // Heatmap button (only if pace data available)
+        if (route.hasPaceData()) {
+            const heatmapBtn = document.createElement('button');
+            heatmapBtn.className = 'heatmap-btn' + (route.heatmapMode ? ' active' : '');
+            heatmapBtn.textContent = route.heatmapMode ? 'Heatmap On' : 'Heatmap';
+            heatmapBtn.onclick = (e) => {
+                e.stopPropagation();
+                route.toggleHeatmap(this.mapManager.map);
+                this.updateUI();
+            };
+            actions.appendChild(heatmapBtn);
+        }
+
         const toggleBtn = document.createElement('button');
         toggleBtn.className = 'file-toggle' + (route.visible ? '' : ' hidden-route');
         toggleBtn.textContent = route.visible ? 'Hide' : 'Show';

@@ -1,4 +1,5 @@
 // Route class - Encapsulates route data and map objects
+import { Utils } from './utils.js';
 
 export class Route {
     constructor(data) {
@@ -26,6 +27,10 @@ export class Route {
 
         // Animation state
         this.animationState = null;
+
+        // Heatmap state
+        this.heatmapMode = false;
+        this.heatmapPolylines = [];
     }
 
     createMapObjects(map, index, handlers) {
@@ -67,15 +72,21 @@ export class Route {
 
     setVisible(visible, map) {
         this.visible = visible;
-        this.polyline.setMap(visible ? map : null);
+        if (this.heatmapMode) {
+            this.heatmapPolylines.forEach(p => p.setMap(visible ? map : null));
+            this.polyline.setMap(null);
+        } else {
+            this.polyline.setMap(visible ? map : null);
+        }
         this.startMarker.setMap(visible ? map : null);
     }
 
     highlight(highlight) {
-        if (highlight) {
-            this.polyline.setOptions({ strokeWeight: 8, strokeOpacity: 1.0 });
+        const weight = highlight ? 8 : 5;
+        if (this.heatmapMode) {
+            this.heatmapPolylines.forEach(p => p.setOptions({ strokeWeight: weight }));
         } else {
-            this.polyline.setOptions({ strokeWeight: 5, strokeOpacity: 1.0 });
+            this.polyline.setOptions({ strokeWeight: weight, strokeOpacity: 1.0 });
         }
     }
 
@@ -122,6 +133,89 @@ export class Route {
         };
     }
 
+    // Heatmap methods
+    createHeatmapPolylines(map) {
+        // Clear existing heatmap polylines
+        this.clearHeatmapPolylines();
+
+        // Need pace data
+        if (!this.paces || this.paces.length < 2) {
+            return false;
+        }
+
+        // Get valid paces for min/max calculation
+        const validPaces = this.paces.filter(p => p !== null && p > 0 && p < 30);
+        if (validPaces.length === 0) {
+            return false;
+        }
+
+        const minPace = Math.min(...validPaces);
+        const maxPace = Math.max(...validPaces);
+
+        // Decimate for performance (max ~500 segments)
+        const step = Math.max(1, Math.floor(this.coordinates.length / 500));
+
+        for (let i = 0; i < this.coordinates.length - step; i += step) {
+            const endIdx = Math.min(i + step, this.coordinates.length - 1);
+
+            // Get average pace for this segment
+            let paceSum = 0;
+            let paceCount = 0;
+            for (let j = i; j <= endIdx; j++) {
+                if (this.paces[j] !== null && this.paces[j] > 0) {
+                    paceSum += this.paces[j];
+                    paceCount++;
+                }
+            }
+            const avgPace = paceCount > 0 ? paceSum / paceCount : (minPace + maxPace) / 2;
+
+            const color = Utils.getPaceColor(avgPace, minPace, maxPace);
+
+            const segment = new google.maps.Polyline({
+                path: [this.coordinates[i], this.coordinates[endIdx]],
+                geodesic: true,
+                strokeColor: color,
+                strokeOpacity: 1.0,
+                strokeWeight: 5,
+                map: map
+            });
+
+            this.heatmapPolylines.push(segment);
+        }
+
+        return true;
+    }
+
+    toggleHeatmap(map) {
+        if (this.heatmapMode) {
+            // Turn off heatmap
+            this.clearHeatmapPolylines();
+            this.heatmapMode = false;
+            if (this.visible) {
+                this.polyline.setMap(map);
+            }
+        } else {
+            // Turn on heatmap
+            const success = this.createHeatmapPolylines(map);
+            if (success) {
+                this.heatmapMode = true;
+                this.polyline.setMap(null);
+            }
+        }
+        return this.heatmapMode;
+    }
+
+    clearHeatmapPolylines() {
+        this.heatmapPolylines.forEach(p => {
+            p.setMap(null);
+        });
+        this.heatmapPolylines = [];
+    }
+
+    hasPaceData() {
+        return this.paces && this.paces.some(p => p !== null && p > 0);
+    }
+
     destroy() {
         if (this.polyline) {
             google.maps.event.clearInstanceListeners(this.polyline);
@@ -136,6 +230,8 @@ export class Route {
             this.animationMarker.setMap(null);
             this.animationMarker = null;
         }
+        this.clearHeatmapPolylines();
+        this.heatmapMode = false;
         this.animationState = null;
     }
 }

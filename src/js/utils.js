@@ -853,5 +853,48 @@ export const Utils = {
             climbs: finalize(climbs),
             descents: finalize(descents)
         };
+    },
+
+    // Heatmap Color Functions
+    interpolateColor(color1, color2, factor) {
+        // Parse hex colors
+        const r1 = parseInt(color1.slice(1, 3), 16);
+        const g1 = parseInt(color1.slice(3, 5), 16);
+        const b1 = parseInt(color1.slice(5, 7), 16);
+
+        const r2 = parseInt(color2.slice(1, 3), 16);
+        const g2 = parseInt(color2.slice(3, 5), 16);
+        const b2 = parseInt(color2.slice(5, 7), 16);
+
+        // Interpolate
+        const r = Math.round(r1 + (r2 - r1) * factor);
+        const g = Math.round(g1 + (g2 - g1) * factor);
+        const b = Math.round(b1 + (b2 - b1) * factor);
+
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    },
+
+    getPaceColor(pace, minPace, maxPace) {
+        // Colors: Green (fast) -> Yellow (medium) -> Red (slow)
+        const GREEN = '#34A853';
+        const YELLOW = '#FBBC04';
+        const RED = '#EA4335';
+
+        if (pace === null || pace === undefined || isNaN(pace)) {
+            return YELLOW; // Default for invalid data
+        }
+
+        // Clamp pace to range
+        const clampedPace = Math.max(minPace, Math.min(maxPace, pace));
+
+        // Normalize to 0-1 (0 = fast/minPace, 1 = slow/maxPace)
+        const normalized = (clampedPace - minPace) / (maxPace - minPace);
+
+        // Two-stage gradient: green->yellow (0-0.5), yellow->red (0.5-1)
+        if (normalized <= 0.5) {
+            return this.interpolateColor(GREEN, YELLOW, normalized * 2);
+        } else {
+            return this.interpolateColor(YELLOW, RED, (normalized - 0.5) * 2);
+        }
     }
 };
