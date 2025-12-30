@@ -967,5 +967,94 @@ export const Utils = {
             minVal: minVal,
             maxVal: maxVal
         };
+    },
+
+    // Effort Score Calculation
+    calculateEffortScore(route) {
+        let score = 0;
+        let factorsUsed = 0;
+
+        // Duration factor (30%): 0-30 min = 0-30, 30-90 min = 30-100
+        if (route.stats.duration && route.stats.duration > 0) {
+            const durationMins = route.stats.duration / 60;
+            let durationScore;
+            if (durationMins <= 30) {
+                durationScore = (durationMins / 30) * 30; // 0-30 maps to 0-30
+            } else {
+                durationScore = 30 + ((Math.min(durationMins, 90) - 30) / 60) * 70; // 30-90 maps to 30-100
+            }
+            score += durationScore * 0.30;
+            factorsUsed++;
+        }
+
+        // Distance factor (25%): 0-5km = 0-25, 5-20km = 25-100
+        if (route.stats.distance && route.stats.distance > 0) {
+            const distKm = route.stats.distance;
+            let distanceScore;
+            if (distKm <= 5) {
+                distanceScore = (distKm / 5) * 25;
+            } else {
+                distanceScore = 25 + ((Math.min(distKm, 20) - 5) / 15) * 75;
+            }
+            score += distanceScore * 0.25;
+            factorsUsed++;
+        }
+
+        // Elevation factor (25%): 0-100m = 0-25, 100-500m = 25-100
+        if (route.stats.elevationGain && route.stats.elevationGain > 0) {
+            const elevGain = route.stats.elevationGain;
+            let elevationScore;
+            if (elevGain <= 100) {
+                elevationScore = (elevGain / 100) * 25;
+            } else {
+                elevationScore = 25 + ((Math.min(elevGain, 500) - 100) / 400) * 75;
+            }
+            score += elevationScore * 0.25;
+            factorsUsed++;
+        }
+
+        // Pace factor (20%): Faster pace = higher effort
+        // Use inverse of pace (faster = lower min/km = harder)
+        if (route.paces && route.paces.length > 10) {
+            const validPaces = route.paces.filter(p => p !== null && p > 0 && p < 20);
+            if (validPaces.length > 0) {
+                const avgPace = validPaces.reduce((a, b) => a + b, 0) / validPaces.length;
+                // 8+ min/km = easy (0), 4 min/km = very hard (100)
+                let paceScore = Math.max(0, Math.min(100, (8 - avgPace) / 4 * 100));
+                score += paceScore * 0.20;
+                factorsUsed++;
+            }
+        }
+
+        // If we used fewer than all factors, normalize
+        if (factorsUsed > 0 && factorsUsed < 4) {
+            score = score / (factorsUsed * 0.25); // Normalize based on factors used
+        }
+
+        // Clamp and ensure minimum
+        score = Math.max(5, Math.min(100, Math.round(score)));
+
+        // Determine category
+        let category, categoryColor;
+        if (score <= 25) {
+            category = 'Easy';
+            categoryColor = '#34A853';
+        } else if (score <= 50) {
+            category = 'Moderate';
+            categoryColor = '#4285F4';
+        } else if (score <= 75) {
+            category = 'Hard';
+            categoryColor = '#FF9800';
+        } else {
+            category = 'Very Hard';
+            categoryColor = '#EA4335';
+        }
+
+        return {
+            score: score,
+            category: category,
+            color: categoryColor,
+            factorsUsed: factorsUsed
+        };
     }
 };

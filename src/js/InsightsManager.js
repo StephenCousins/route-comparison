@@ -377,6 +377,10 @@ export class InsightsManager {
     generateInsights(route) {
         const insights = [];
 
+        // Effort Score (show first as prominent card)
+        const effortInsights = this.calculateEffortInsights(route);
+        insights.push(...effortInsights);
+
         if (route.stats.duration && route.paces.length > 10) {
             const splitInsight = this.calculateSplitAnalysis(route);
             if (splitInsight) insights.push(splitInsight);
@@ -818,6 +822,53 @@ export class InsightsManager {
             <div class="insight-card zone-card neutral">
                 <div class="insight-title">${title}</div>
                 <div class="insight-value">${barHtml}</div>
+                <div class="insight-description">${description}</div>
+            </div>
+        `;
+    }
+
+    // Effort Score Analysis
+    calculateEffortInsights(route) {
+        const insights = [];
+
+        const effort = Utils.calculateEffortScore(route);
+
+        if (effort.factorsUsed === 0) {
+            return insights;
+        }
+
+        // Build description with factors
+        const factors = [];
+        if (route.stats.duration) factors.push(`${Math.round(route.stats.duration / 60)} min`);
+        if (route.stats.distance) factors.push(`${route.stats.distance.toFixed(1)} km`);
+        if (route.stats.elevationGain) factors.push(`+${Math.round(route.stats.elevationGain)}m`);
+        const factorStr = factors.join(' • ');
+
+        // Determine card type based on category
+        let cardType;
+        if (effort.category === 'Easy') cardType = 'positive';
+        else if (effort.category === 'Moderate') cardType = 'neutral';
+        else if (effort.category === 'Hard') cardType = 'warning';
+        else cardType = 'negative';
+
+        insights.push(this.createEffortCard(
+            effort.score,
+            effort.category,
+            effort.color,
+            factorStr
+        ));
+
+        return insights;
+    }
+
+    createEffortCard(score, category, color, description) {
+        return `
+            <div class="insight-card effort-card" style="background: linear-gradient(135deg, ${color}dd 0%, ${color}99 100%);">
+                <div class="insight-title">Effort Score</div>
+                <div class="effort-score-display">
+                    <span class="effort-number">${score}</span>
+                    <span class="effort-category">${category}</span>
+                </div>
                 <div class="insight-description">${description}</div>
             </div>
         `;
