@@ -414,6 +414,10 @@ export class InsightsManager {
         const bestEffortInsights = this.calculateBestEffortInsights(route);
         insights.push(...bestEffortInsights);
 
+        // Gradient Analysis
+        const gradientInsights = this.calculateGradientInsights(route);
+        insights.push(...gradientInsights);
+
         return insights;
     }
 
@@ -676,6 +680,62 @@ export class InsightsManager {
             return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
         return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // Gradient Analysis
+    calculateGradientInsights(route) {
+        const insights = [];
+
+        // Need elevation data for gradient analysis
+        if (!route.elevations || route.elevations.length < 10) {
+            return insights;
+        }
+
+        const { climbs, descents } = Utils.detectSteepSections(route, 5, 0.05);
+
+        // Find steepest climb
+        if (climbs.length > 0) {
+            const steepestClimb = climbs.reduce((max, c) => c.maxGrade > max.maxGrade ? c : max);
+            insights.push(this.createInsightCard(
+                'negative',
+                'Steepest Climb',
+                `${steepestClimb.maxGrade.toFixed(1)}% grade`,
+                `at ${steepestClimb.startKm.toFixed(1)}km • +${Math.round(steepestClimb.elevChange)}m over ${(steepestClimb.distance * 1000).toFixed(0)}m`
+            ));
+
+            // Total climbing distance
+            const totalClimbDist = climbs.reduce((sum, c) => sum + c.distance, 0);
+            const totalClimbElev = climbs.reduce((sum, c) => sum + c.elevChange, 0);
+            insights.push(this.createInsightCard(
+                'neutral',
+                'Steep Climbing',
+                `${(totalClimbDist * 1000).toFixed(0)}m`,
+                `${climbs.length} climb${climbs.length > 1 ? 's' : ''} >5% • +${Math.round(totalClimbElev)}m total`
+            ));
+        }
+
+        // Find steepest descent
+        if (descents.length > 0) {
+            const steepestDescent = descents.reduce((max, d) => d.maxGrade > max.maxGrade ? d : max);
+            insights.push(this.createInsightCard(
+                'positive',
+                'Steepest Descent',
+                `${steepestDescent.maxGrade.toFixed(1)}% grade`,
+                `at ${steepestDescent.startKm.toFixed(1)}km • -${Math.round(steepestDescent.elevChange)}m over ${(steepestDescent.distance * 1000).toFixed(0)}m`
+            ));
+        }
+
+        // Flat terrain message if no steep sections
+        if (climbs.length === 0 && descents.length === 0) {
+            insights.push(this.createInsightCard(
+                'positive',
+                'Flat Terrain',
+                'No steep sections',
+                'No gradients >5% detected on this route'
+            ));
+        }
+
+        return insights;
     }
 
     createInsightCard(type, title, value, description) {

@@ -735,5 +735,123 @@ export const Utils = {
         }
 
         return bestEfforts;
+    },
+
+    // Gradient Analysis
+    calculateGrades(route) {
+        if (!route.elevations || route.elevations.length < 2) {
+            return [];
+        }
+
+        const grades = [];
+        const distances = this.buildCumulativeDistances(route);
+
+        for (let i = 1; i < route.coordinates.length; i++) {
+            const dist = (distances[i] - distances[i - 1]) * 1000; // km to meters
+            const elevChange = route.elevations[i] - route.elevations[i - 1];
+
+            if (dist > 0) {
+                grades.push({
+                    grade: (elevChange / dist) * 100,
+                    distance: distances[i],
+                    elevChange: elevChange
+                });
+            } else {
+                grades.push({
+                    grade: 0,
+                    distance: distances[i],
+                    elevChange: 0
+                });
+            }
+        }
+
+        return grades;
+    },
+
+    detectSteepSections(route, threshold = 5, minLength = 0.05) {
+        const grades = this.calculateGrades(route);
+        if (grades.length === 0) return { climbs: [], descents: [] };
+
+        const climbs = [];
+        const descents = [];
+
+        let currentSection = null;
+        const distances = this.buildCumulativeDistances(route);
+
+        for (let i = 0; i < grades.length; i++) {
+            const { grade, elevChange } = grades[i];
+            const distKm = distances[i + 1]; // +1 because grades array is offset by 1
+
+            const isClimb = grade >= threshold;
+            const isDescent = grade <= -threshold;
+
+            if (isClimb || isDescent) {
+                const type = isClimb ? 'climb' : 'descent';
+
+                if (!currentSection || currentSection.type !== type) {
+                    // Save previous section if valid
+                    if (currentSection && currentSection.distance >= minLength) {
+                        if (currentSection.type === 'climb') {
+                            climbs.push(currentSection);
+                        } else {
+                            descents.push(currentSection);
+                        }
+                    }
+
+                    // Start new section
+                    currentSection = {
+                        type: type,
+                        startKm: distances[i],
+                        endKm: distKm,
+                        distance: distKm - distances[i],
+                        elevChange: elevChange,
+                        maxGrade: Math.abs(grade),
+                        grades: [grade]
+                    };
+                } else {
+                    // Extend current section
+                    currentSection.endKm = distKm;
+                    currentSection.distance = currentSection.endKm - currentSection.startKm;
+                    currentSection.elevChange += elevChange;
+                    currentSection.maxGrade = Math.max(currentSection.maxGrade, Math.abs(grade));
+                    currentSection.grades.push(grade);
+                }
+            } else {
+                // End current section if exists
+                if (currentSection && currentSection.distance >= minLength) {
+                    if (currentSection.type === 'climb') {
+                        climbs.push(currentSection);
+                    } else {
+                        descents.push(currentSection);
+                    }
+                }
+                currentSection = null;
+            }
+        }
+
+        // Don't forget the last section
+        if (currentSection && currentSection.distance >= minLength) {
+            if (currentSection.type === 'climb') {
+                climbs.push(currentSection);
+            } else {
+                descents.push(currentSection);
+            }
+        }
+
+        // Calculate average grade for each section
+        const finalize = (sections) => sections.map(s => ({
+            type: s.type,
+            startKm: s.startKm,
+            endKm: s.endKm,
+            distance: s.distance,
+            elevChange: Math.abs(s.elevChange),
+            maxGrade: s.maxGrade,
+            avgGrade: Math.abs(s.grades.reduce((a, b) => a + b, 0) / s.grades.length)
+        }));
+
+        return {
+            climbs: finalize(climbs),
+            descents: finalize(descents)
+        };
     }
 };
