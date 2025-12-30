@@ -410,6 +410,10 @@ export class InsightsManager {
         const quirkyStats = this.calculateQuirkyStats(route);
         insights.push(...quirkyStats);
 
+        // Best Efforts Detection
+        const bestEffortInsights = this.calculateBestEffortInsights(route);
+        insights.push(...bestEffortInsights);
+
         return insights;
     }
 
@@ -625,6 +629,53 @@ export class InsightsManager {
         }
 
         return insights;
+    }
+
+    // Best Efforts Detection
+    calculateBestEffortInsights(route) {
+        const insights = [];
+
+        // Need timestamps for best efforts calculation
+        if (!route.timestamps || route.timestamps.length === 0) {
+            return insights;
+        }
+
+        const bestEfforts = Utils.calculateBestEfforts(route);
+
+        if (bestEfforts.length === 0) {
+            return insights;
+        }
+
+        // Create card for each best effort
+        for (const effort of bestEfforts) {
+            const paceStr = Utils.formatSplitPace(effort.pace);
+            const timeStr = this.formatDuration(effort.duration);
+            const locationStr = `at ${effort.startKm.toFixed(1)}km`;
+            const elevStr = effort.elevGain > 0 ? ` • +${Math.round(effort.elevGain)}m` : '';
+
+            insights.push(this.createInsightCard(
+                'positive',
+                `Best ${effort.distanceLabel}`,
+                `${timeStr} (${paceStr})`,
+                `${locationStr}${elevStr}`
+            ));
+        }
+
+        return insights;
+    }
+
+    formatDuration(seconds) {
+        if (seconds === null || seconds === undefined || isNaN(seconds)) {
+            return 'N/A';
+        }
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.round(seconds % 60);
+
+        if (hrs > 0) {
+            return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
     }
 
     createInsightCard(type, title, value, description) {

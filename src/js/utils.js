@@ -646,5 +646,94 @@ export const Utils = {
         const mins = Math.floor(seconds / 60);
         const secs = Math.round(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
+    },
+
+    // Best Efforts Detection
+    buildCumulativeDistances(route) {
+        const distances = [0];
+        for (let i = 1; i < route.coordinates.length; i++) {
+            const d = this.haversineDistance(
+                route.coordinates[i - 1],
+                route.coordinates[i]
+            );
+            distances.push(distances[i - 1] + d);
+        }
+        return distances;
+    },
+
+    getDistanceLabel(km) {
+        if (km === 21.1 || km === 21.0975) return 'Half Marathon';
+        if (km === 42.195 || km === 42.2) return 'Marathon';
+        if (km < 1) return `${Math.round(km * 1000)}m`;
+        return `${km}km`;
+    },
+
+    calculateBestEfforts(route, distances = [1, 5, 10, 21.1, 42.195]) {
+        const routeDistance = route.stats.distance;
+        const validDistances = distances.filter(d => d <= routeDistance);
+
+        if (validDistances.length === 0) return [];
+
+        // Build cumulative distance array
+        const cumulativeDistances = this.buildCumulativeDistances(route);
+
+        const bestEfforts = [];
+
+        for (const targetDistance of validDistances) {
+            let bestPace = Infinity;
+            let bestStartKm = 0;
+            let bestDuration = 0;
+            let bestElevGain = 0;
+            let bestStartIdx = 0;
+            let bestEndIdx = 0;
+
+            // Slide window across route
+            for (let i = 0; i < cumulativeDistances.length; i++) {
+                const startKm = cumulativeDistances[i];
+                const endKm = startKm + targetDistance;
+
+                if (endKm > routeDistance + 0.01) break; // Small tolerance
+
+                // Find end index using binary search
+                const endIdx = this.findIndexAtDistance(cumulativeDistances, endKm);
+                if (endIdx >= route.coordinates.length) continue;
+
+                // Calculate duration for this window
+                const startTime = route.timestamps[i];
+                const endTime = route.timestamps[endIdx];
+                if (!startTime || !endTime) continue;
+
+                const durationSec = (endTime - startTime) / 1000;
+                if (durationSec <= 0) continue;
+
+                const pace = durationSec / 60 / targetDistance; // min/km
+
+                if (pace < bestPace && pace > 0) {
+                    bestPace = pace;
+                    bestStartKm = startKm;
+                    bestDuration = durationSec;
+                    bestStartIdx = i;
+                    bestEndIdx = endIdx;
+                    bestElevGain = this.calculateSplitElevGain(
+                        route.elevations, i, endIdx
+                    );
+                }
+            }
+
+            if (bestPace < Infinity) {
+                bestEfforts.push({
+                    distance: targetDistance,
+                    distanceLabel: this.getDistanceLabel(targetDistance),
+                    pace: bestPace,
+                    duration: bestDuration,
+                    startKm: bestStartKm,
+                    elevGain: bestElevGain,
+                    startIdx: bestStartIdx,
+                    endIdx: bestEndIdx
+                });
+            }
+        }
+
+        return bestEfforts;
     }
 };
