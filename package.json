@@ -1,0 +1,10 @@
+{
+  "name": "route-comparison",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "serve -s src -l $PORT"
+  },
+  "dependencies": {
+    "serve": "^14.2.0"
+  }
+}
