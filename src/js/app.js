@@ -660,17 +660,42 @@ class RouteOverlayApp {
         // Find max number of splits across all routes
         const maxSplits = Math.max(...allSplits.map(r => r.splits.length));
 
+        // Calculate cumulative times for each route
+        const cumulativeTimes = allSplits.map(({ splits }) => {
+            const times = [];
+            let cumulative = 0;
+            for (const split of splits) {
+                if (split.duration !== null) {
+                    cumulative += split.duration;
+                }
+                times.push(cumulative);
+            }
+            return times;
+        });
+
+        // Reference route is the first one (index 0)
+        const referenceIdx = 0;
+
         // Build table header
         let headerRow1 = '<tr><th rowspan="2" class="split-number-header">Split</th>';
         let headerRow2 = '<tr>';
 
-        allSplits.forEach(({ route }) => {
-            headerRow1 += `<th colspan="3" class="route-header">
+        allSplits.forEach(({ route }, routeIdx) => {
+            // First route has 4 columns (Time, Pace, Elev, HR)
+            // Other routes have 5 columns (Time, Gap, Pace, Elev, HR)
+            const colSpan = routeIdx === referenceIdx ? 4 : 5;
+            headerRow1 += `<th colspan="${colSpan}" class="route-header">
                 <div class="route-header-content">
                     <div class="route-color-dot" style="background: ${route.color}"></div>
                     <span>${route.displayName}</span>
+                    ${routeIdx === referenceIdx ? '<span class="reference-badge">REF</span>' : ''}
                 </div>
             </th>`;
+
+            headerRow2 += '<th class="metric-header time-header">Time</th>';
+            if (routeIdx !== referenceIdx) {
+                headerRow2 += '<th class="metric-header gap-header">Gap</th>';
+            }
             headerRow2 += '<th class="metric-header">Pace</th><th class="metric-header">Elev</th><th class="metric-header">HR</th>';
         });
 
@@ -683,14 +708,34 @@ class RouteOverlayApp {
             const splitNum = i + 1;
             let row = `<tr><td class="split-number">${splitNum} km</td>`;
 
-            allSplits.forEach(({ splits }) => {
+            // Get reference cumulative time for this split
+            const refCumTime = cumulativeTimes[referenceIdx][i];
+
+            allSplits.forEach(({ splits }, routeIdx) => {
                 const split = splits[i];
+                const cumTime = cumulativeTimes[routeIdx][i];
+
                 if (split) {
                     const paceClass = split.isPartial ? 'partial-split' : '';
+
+                    // Time column (cumulative)
+                    row += `<td class="split-time">${Utils.formatSplitTime(cumTime)}</td>`;
+
+                    // Gap column (only for non-reference routes)
+                    if (routeIdx !== referenceIdx) {
+                        const gap = cumTime - refCumTime;
+                        const gapClass = gap < 0 ? 'split-gap-ahead' : gap > 0 ? 'split-gap-behind' : 'split-gap-even';
+                        row += `<td class="split-gap ${gapClass}">${Utils.formatSplitGap(gap)}</td>`;
+                    }
+
                     row += `<td class="split-pace ${paceClass}">${Utils.formatSplitPace(split.pace)}</td>`;
                     row += `<td class="split-elev">${Utils.formatSplitElevation(split.elevGain)}</td>`;
                     row += `<td class="split-hr">${Utils.formatSplitHR(split.avgHR)}</td>`;
                 } else {
+                    row += '<td class="split-na">-</td>';
+                    if (routeIdx !== referenceIdx) {
+                        row += '<td class="split-na">-</td>';
+                    }
                     row += '<td class="split-na">-</td><td class="split-na">-</td><td class="split-na">-</td>';
                 }
             });
@@ -701,7 +746,7 @@ class RouteOverlayApp {
 
         // Add totals row
         let totalsRow = '<tr class="totals-row"><td class="split-number"><strong>Total</strong></td>';
-        allSplits.forEach(({ route }) => {
+        allSplits.forEach(({ route, splits }, routeIdx) => {
             const avgPace = route.paces && route.paces.length > 0
                 ? route.paces.filter(p => p !== null && !isNaN(p) && p > 0 && p < 20).reduce((a, b) => a + b, 0) /
                   route.paces.filter(p => p !== null && !isNaN(p) && p > 0 && p < 20).length
@@ -710,6 +755,19 @@ class RouteOverlayApp {
                 ? route.heartRates.filter(h => h !== null && !isNaN(h)).reduce((a, b) => a + b, 0) /
                   route.heartRates.filter(h => h !== null && !isNaN(h)).length
                 : null;
+
+            // Total time
+            const totalTime = route.stats.duration;
+            const refTotalTime = allSplits[referenceIdx].route.stats.duration;
+
+            totalsRow += `<td class="split-time"><strong>${Utils.formatSplitTime(totalTime)}</strong></td>`;
+
+            // Total gap (only for non-reference routes)
+            if (routeIdx !== referenceIdx) {
+                const totalGap = totalTime - refTotalTime;
+                const gapClass = totalGap < 0 ? 'split-gap-ahead' : totalGap > 0 ? 'split-gap-behind' : 'split-gap-even';
+                totalsRow += `<td class="split-gap ${gapClass}"><strong>${Utils.formatSplitGap(totalGap)}</strong></td>`;
+            }
 
             totalsRow += `<td class="split-pace"><strong>${Utils.formatSplitPace(avgPace)}</strong></td>`;
             totalsRow += `<td class="split-elev"><strong>${Utils.formatSplitElevation(route.stats.elevationGain)}</strong></td>`;

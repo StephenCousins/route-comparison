@@ -526,6 +526,12 @@ export const Utils = {
             const startIdx = this.findIndexAtDistance(distances, startKm);
             const endIdx = this.findIndexAtDistance(distances, endKm);
 
+            // Calculate duration for this split
+            let duration = null;
+            if (route.timestamps && route.timestamps[startIdx] && route.timestamps[endIdx]) {
+                duration = (route.timestamps[endIdx] - route.timestamps[startIdx]) / 1000; // seconds
+            }
+
             // Calculate metrics for split
             const split = {
                 number: splitNum,
@@ -533,6 +539,7 @@ export const Utils = {
                 endKm: endKm,
                 distance: endKm - startKm,
                 isPartial: isPartialSplit,
+                duration: duration,
                 pace: this.calculateSplitPace(route, startIdx, endIdx),
                 elevGain: this.calculateSplitElevGain(route.elevations, startIdx, endIdx),
                 avgHR: this.calculateSplitAvg(route.heartRates, startIdx, endIdx)
@@ -568,6 +575,29 @@ export const Utils = {
             return 'N/A';
         }
         return Math.round(hr).toString();
+    },
+
+    formatSplitTime(seconds) {
+        if (seconds === null || seconds === undefined || isNaN(seconds)) {
+            return 'N/A';
+        }
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.round(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    },
+
+    formatSplitGap(seconds) {
+        if (seconds === null || seconds === undefined || isNaN(seconds)) {
+            return '-';
+        }
+        const sign = seconds >= 0 ? '+' : '-';
+        const absSecs = Math.abs(seconds);
+        const mins = Math.floor(absSecs / 60);
+        const secs = Math.round(absSecs % 60);
+        if (mins > 0) {
+            return `${sign}${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${sign}${Math.round(absSecs)}s`;
     },
 
     // Segment Analysis utilities
