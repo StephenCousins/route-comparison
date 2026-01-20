@@ -1,5 +1,6 @@
 // ChartManager - Handles elevation/metric charts
 import { Utils } from './utils.js';
+import { ChartEventHandler } from './ChartEventHandler.js';
 
 export class ChartManager {
     constructor() {
@@ -15,14 +16,37 @@ export class ChartManager {
         this.routeOffsets = {};
 
         this.isDragging = false;
-        this.isSelecting = false;
         this.dragStartX = null;
         this.dragStartOffset = 0;
-        this.selectionStart = null;
         this.animationFrameId = null;
-        this.originalImage = null;
+
+        // Initialize shared event handler for zoom/crosshair
+        this.eventHandler = new ChartEventHandler({
+            canvas: this.canvas,
+            crosshair: this.crosshair,
+            onRedraw: () => this.redrawChart(),
+            onZoomChanged: () => {
+                document.getElementById('resetZoomBtn').disabled = false;
+                this.redrawChart();
+            },
+            getRouteOffsets: () => this.routeOffsets,
+            getCurrentData: () => this.currentData,
+            getZoomState: () => this.zoomState,
+            setZoomState: (state) => { this.zoomState = state; }
+        });
 
         this.setupEventListeners();
+    }
+
+    redrawChart() {
+        if (this.currentData) {
+            this.drawChart(
+                this.currentData.routes,
+                this.currentData.metricType,
+                this.currentData.yAxisLabel,
+                this.currentData.formatValue
+            );
+        }
     }
 
     setupEventListeners() {
@@ -54,8 +78,8 @@ export class ChartManager {
         this.selectedRouteForDrag = null;
         this.routeOffsets = {};
         this.isDragging = false;
-        this.isSelecting = false;
-        this.originalImage = null;
+        this.eventHandler.resetSelection();
+        this.eventHandler.originalImage = null;
 
         document.getElementById('resetZoomBtn').disabled = true;
         document.getElementById('resetOffsetsBtn').disabled = true;
@@ -117,29 +141,26 @@ export class ChartManager {
     handleMouseDown(e) {
         const rect = this.canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
-        const chartWidth = this.canvas.width - 140;
+        const y = e.clientY - rect.top;
 
-        if (x >= 70 && x <= 70 + chartWidth) {
-            if (this.dragMode && this.selectedRouteForDrag !== null) {
+        if (this.dragMode && this.selectedRouteForDrag !== null) {
+            const { width: chartWidth } = this.eventHandler.getChartDimensions();
+            if (x >= this.eventHandler.padding.left && x <= this.eventHandler.padding.left + chartWidth) {
                 this.isDragging = true;
                 this.dragStartX = x;
                 const routeId = this.currentData.routes[this.selectedRouteForDrag].filename;
                 this.dragStartOffset = this.routeOffsets[routeId] || 0;
                 this.canvas.classList.add('dragging');
-            } else if (!this.dragMode) {
-                this.isSelecting = true;
-                const y = e.clientY - rect.top;
-                this.selectionStart = { x, y };
             }
+        } else if (!this.dragMode) {
+            this.eventHandler.startSelection(x, y);
         }
     }
 
     handleMouseMove(e) {
         const rect = this.canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const chartWidth = this.canvas.width - 140;
-        const chartHeight = this.canvas.height - 120;
+        const { width: chartWidth } = this.eventHandler.getChartDimensions();
 
         if (this.isDragging && this.selectedRouteForDrag !== null) {
             const pixelDiff = x - this.dragStartX;
@@ -155,56 +176,13 @@ export class ChartManager {
 
             if (!this.animationFrameId) {
                 this.animationFrameId = requestAnimationFrame(() => {
-                    if (this.currentData) {
-                        this.drawChart(
-                            this.currentData.routes,
-                            this.currentData.metricType,
-                            this.currentData.yAxisLabel,
-                            this.currentData.formatValue
-                        );
-                    }
+                    this.redrawChart();
                     this.animationFrameId = null;
                 });
             }
-        } else if (this.isSelecting && this.selectionStart) {
-            if (this.currentData) {
-                this.drawChart(
-                    this.currentData.routes,
-                    this.currentData.metricType,
-                    this.currentData.yAxisLabel,
-                    this.currentData.formatValue
-                );
-
-                const startX = Math.min(this.selectionStart.x, x);
-                const startY = Math.min(this.selectionStart.y, y);
-                const width = Math.abs(x - this.selectionStart.x);
-                const height = Math.abs(y - this.selectionStart.y);
-
-                this.ctx.strokeStyle = '#1a73e8';
-                this.ctx.fillStyle = 'rgba(26, 115, 232, 0.1)';
-                this.ctx.lineWidth = 2;
-                this.ctx.strokeRect(startX, startY, width, height);
-                this.ctx.fillRect(startX, startY, width, height);
-            }
-        } else if (!this.isDragging && !this.isSelecting && this.originalImage) {
-            if (x < 70 || x > 70 + chartWidth || y < 50 || y > 50 + chartHeight) {
-                this.crosshair.style.display = 'none';
-                this.ctx.putImageData(this.originalImage, 0, 0);
-                return;
-            }
-
-            this.ctx.putImageData(this.originalImage, 0, 0);
-
-            this.ctx.strokeStyle = 'rgba(26, 115, 232, 0.8)';
-            this.ctx.lineWidth = 2;
-            this.ctx.setLineDash([5, 5]);
-            this.ctx.beginPath();
-            this.ctx.moveTo(x, 50);
-            this.ctx.lineTo(x, 50 + chartHeight);
-            this.ctx.stroke();
-            this.ctx.setLineDash([]);
-
-            this.updateCrosshair(x, e.clientX, e.clientY, chartWidth);
+        } else if (!this.isDragging) {
+            // Delegate to shared event handler for selection/crosshair
+            this.eventHandler.handleMouseMove(e, rect);
         }
     }
 
@@ -216,51 +194,12 @@ export class ChartManager {
                 cancelAnimationFrame(this.animationFrameId);
                 this.animationFrameId = null;
             }
-            if (this.currentData) {
-                this.drawChart(
-                    this.currentData.routes,
-                    this.currentData.metricType,
-                    this.currentData.yAxisLabel,
-                    this.currentData.formatValue
-                );
-            }
-        } else if (this.isSelecting && this.selectionStart) {
+            this.redrawChart();
+        } else {
+            // Delegate to shared event handler for zoom selection
             const rect = this.canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const chartWidth = this.canvas.width - 140;
-
-            const startX = Math.min(this.selectionStart.x, x);
-            const endX = Math.max(this.selectionStart.x, x);
-
-            if (Math.abs(endX - startX) > 20) {
-                const maxDistance = Math.max(...this.currentData.routes.map(r => {
-                    const offset = this.routeOffsets[r.filename] || 0;
-                    return r.stats.distance + offset;
-                }));
-
-                const minDistance = ((startX - 70) / chartWidth) * maxDistance;
-                const maxDistanceZoom = ((endX - 70) / chartWidth) * maxDistance;
-
-                this.zoomState = {
-                    minDistance: Math.max(0, minDistance),
-                    maxDistance: Math.min(maxDistance, maxDistanceZoom)
-                };
-
-                document.getElementById('resetZoomBtn').disabled = false;
-
-                if (this.currentData) {
-                    this.drawChart(
-                        this.currentData.routes,
-                        this.currentData.metricType,
-                        this.currentData.yAxisLabel,
-                        this.currentData.formatValue
-                    );
-                }
-            }
+            this.eventHandler.handleMouseUp(e, rect);
         }
-
-        this.isSelecting = false;
-        this.selectionStart = null;
     }
 
     handleMouseLeave() {
@@ -272,77 +211,18 @@ export class ChartManager {
                 this.animationFrameId = null;
             }
         }
-        this.isSelecting = false;
-        this.selectionStart = null;
-        this.crosshair.style.display = 'none';
+        this.eventHandler.handleMouseLeave();
     }
 
     handleMouseEnter() {
         if (this.currentData) {
-            this.originalImage = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+            this.eventHandler.saveCanvasState();
         }
     }
 
     updateCrosshair(x, clientX, clientY, chartWidth) {
-        if (!this.currentData) return;
-
-        const maxDist = this.zoomState ?
-            (this.zoomState.maxDistance - this.zoomState.minDistance) :
-            Math.max(...this.currentData.routes.map(r => {
-                const offset = this.routeOffsets[r.filename] || 0;
-                return r.stats.distance + offset;
-            }));
-
-        const mouseDistance = ((x - 70) / chartWidth) * maxDist;
-
-        let tooltipHTML = `<div class="crosshair-distance">Distance: ${Utils.formatDistance(mouseDistance)}</div>`;
-        let foundData = false;
-
-        this.currentData.processedRoutes.forEach(route => {
-            let closestIdx = -1;
-            let closestDiff = Infinity;
-
-            for (let i = 0; i < route.cumulativeDistances.length; i++) {
-                const diff = Math.abs(route.cumulativeDistances[i] - mouseDistance);
-                if (diff < closestDiff) {
-                    closestDiff = diff;
-                    closestIdx = i;
-                }
-            }
-
-            if (closestIdx >= 0 && closestIdx < route.metricData.length) {
-                const value = route.metricData[closestIdx];
-                if (value !== null && value !== undefined) {
-                    foundData = true;
-                    tooltipHTML += `
-                        <div class="crosshair-route">
-                            <div class="crosshair-color" style="background: ${route.color}"></div>
-                            <span>${route.displayName}:</span>
-                            <span class="crosshair-value">${this.currentData.formatValue(value)}</span>
-                        </div>
-                    `;
-                }
-            }
-        });
-
-        if (foundData) {
-            this.crosshair.innerHTML = tooltipHTML;
-            this.crosshair.style.display = 'block';
-            this.crosshair.style.left = (clientX + 15) + 'px';
-            this.crosshair.style.top = (clientY + 15) + 'px';
-
-            setTimeout(() => {
-                const rect = this.crosshair.getBoundingClientRect();
-                if (rect.right > window.innerWidth) {
-                    this.crosshair.style.left = (clientX - rect.width - 15) + 'px';
-                }
-                if (rect.bottom > window.innerHeight) {
-                    this.crosshair.style.top = (clientY - rect.height - 15) + 'px';
-                }
-            }, 0);
-        } else {
-            this.crosshair.style.display = 'none';
-        }
+        // Delegate to event handler
+        this.eventHandler.updateCrosshairTooltip(x, clientX, clientY);
     }
 
     drawChart(routes, metricType, yAxisLabel, formatValue) {
@@ -527,7 +407,7 @@ export class ChartManager {
         this.ctx.fillText('Distance', this.canvas.width / 2, this.canvas.height - 10);
 
         this.updateLegend();
-        this.originalImage = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.eventHandler.saveCanvasState();
     }
 
     showTimeGapChart(timeGapData) {
@@ -705,7 +585,7 @@ export class ChartManager {
 
         // Update legend for time gap mode
         this.updateTimeGapLegend(timeGapData);
-        this.originalImage = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+        this.eventHandler.saveCanvasState();
     }
 
     updateTimeGapLegend(timeGapData) {

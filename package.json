@@ -1,10 +1,17 @@
 {
   "name": "route-comparison",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
-    "start": "bash start.sh"
+    "start": "bash start.sh",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "serve": "^14.2.0"
+  },
+  "devDependencies": {
+    "jsdom": "^24.0.0",
+    "vitest": "^1.2.0"
   }
 }

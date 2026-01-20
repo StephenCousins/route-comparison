@@ -1,6 +1,7 @@
 // InsightsManager - Handles route insights and analysis
 import { Utils } from './utils.js';
 import { ChartManager } from './ChartManager.js';
+import { ChartEventHandler } from './ChartEventHandler.js';
 
 export class InsightsManager {
     constructor() {
@@ -202,31 +203,12 @@ export class InsightsManager {
         manager.selectedRouteForDrag = null;
         manager.routeOffsets = {};
         manager.isDragging = false;
-        manager.isSelecting = false;
         manager.dragStartX = null;
         manager.dragStartOffset = 0;
-        manager.selectionStart = null;
         manager.animationFrameId = null;
-        manager.originalImage = null;
 
-        // Setup canvas event listeners
-        canvas.addEventListener('mousedown', (e) => manager.handleMouseDown(e));
-        canvas.addEventListener('mousemove', (e) => this.handleInsightsMouseMove(manager, e));
-        canvas.addEventListener('mouseup', (e) => this.handleInsightsMouseUp(manager, e));
-        canvas.addEventListener('mouseleave', () => this.handleInsightsMouseLeave(manager));
-        canvas.addEventListener('mouseenter', () => manager.handleMouseEnter());
-
-        return manager;
-    }
-
-    handleInsightsMouseMove(manager, e) {
-        const rect = manager.canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const chartWidth = manager.canvas.width - 140;
-        const chartHeight = manager.canvas.height - 120;
-
-        if (manager.isSelecting && manager.selectionStart) {
+        // Create redraw function for this manager
+        const redrawChart = () => {
             if (manager.currentData) {
                 manager.drawChart(
                     manager.currentData.routes,
@@ -234,96 +216,52 @@ export class InsightsManager {
                     manager.currentData.yAxisLabel,
                     manager.currentData.formatValue
                 );
-
-                const startX = Math.min(manager.selectionStart.x, x);
-                const startY = Math.min(manager.selectionStart.y, y);
-                const width = Math.abs(x - manager.selectionStart.x);
-                const height = Math.abs(y - manager.selectionStart.y);
-
-                manager.ctx.strokeStyle = '#1a73e8';
-                manager.ctx.fillStyle = 'rgba(26, 115, 232, 0.1)';
-                manager.ctx.lineWidth = 2;
-                manager.ctx.strokeRect(startX, startY, width, height);
-                manager.ctx.fillRect(startX, startY, width, height);
             }
-        } else if (!manager.isSelecting && manager.originalImage) {
-            if (x < 70 || x > 70 + chartWidth || y < 50 || y > 50 + chartHeight) {
-                if (manager.crosshair) {
-                    manager.crosshair.style.display = 'none';
-                }
-                manager.ctx.putImageData(manager.originalImage, 0, 0);
-                return;
-            }
+        };
 
-            manager.ctx.putImageData(manager.originalImage, 0, 0);
-
-            manager.ctx.strokeStyle = 'rgba(26, 115, 232, 0.8)';
-            manager.ctx.lineWidth = 2;
-            manager.ctx.setLineDash([5, 5]);
-            manager.ctx.beginPath();
-            manager.ctx.moveTo(x, 50);
-            manager.ctx.lineTo(x, 50 + chartHeight);
-            manager.ctx.stroke();
-            manager.ctx.setLineDash([]);
-
-            manager.updateCrosshair(x, e.clientX, e.clientY, chartWidth);
-        }
-    }
-
-    handleInsightsMouseUp(manager, e) {
-        if (manager.isSelecting && manager.selectionStart) {
-            const rect = manager.canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const chartWidth = manager.canvas.width - 140;
-
-            const startX = Math.min(manager.selectionStart.x, x);
-            const endX = Math.max(manager.selectionStart.x, x);
-
-            if (Math.abs(endX - startX) > 20) {
-                const maxDistance = Math.max(...manager.currentData.routes.map(r => {
-                    const offset = manager.routeOffsets[r.filename] || 0;
-                    return r.stats.distance + offset;
-                }));
-
-                const minDistance = ((startX - 70) / chartWidth) * maxDistance;
-                const maxDistanceZoom = ((endX - 70) / chartWidth) * maxDistance;
-
-                manager.zoomState = {
-                    minDistance: Math.max(0, minDistance),
-                    maxDistance: Math.min(maxDistance, maxDistanceZoom)
-                };
-
+        // Initialize shared event handler
+        manager.eventHandler = new ChartEventHandler({
+            canvas: canvas,
+            crosshair: manager.crosshair,
+            onRedraw: redrawChart,
+            onZoomChanged: () => {
                 document.getElementById('insightsResetZoomBtn').disabled = false;
+                redrawChart();
+            },
+            getRouteOffsets: () => manager.routeOffsets,
+            getCurrentData: () => manager.currentData,
+            getZoomState: () => manager.zoomState,
+            setZoomState: (state) => { manager.zoomState = state; }
+        });
 
-                if (manager.currentData) {
-                    manager.drawChart(
-                        manager.currentData.routes,
-                        manager.currentData.metricType,
-                        manager.currentData.yAxisLabel,
-                        manager.currentData.formatValue
-                    );
-                }
-            }
-        }
+        // Setup canvas event listeners using shared handler
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            manager.eventHandler.startSelection(x, y);
+        });
 
-        manager.isSelecting = false;
-        manager.selectionStart = null;
-    }
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            manager.eventHandler.handleMouseMove(e, rect);
+        });
 
-    handleInsightsMouseLeave(manager) {
-        manager.isSelecting = false;
-        manager.selectionStart = null;
-        if (manager.crosshair) {
-            manager.crosshair.style.display = 'none';
-        }
-        if (manager.currentData) {
-            manager.drawChart(
-                manager.currentData.routes,
-                manager.currentData.metricType,
-                manager.currentData.yAxisLabel,
-                manager.currentData.formatValue
-            );
-        }
+        canvas.addEventListener('mouseup', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            manager.eventHandler.handleMouseUp(e, rect);
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            manager.eventHandler.handleMouseLeave();
+            redrawChart();
+        });
+
+        canvas.addEventListener('mouseenter', () => {
+            manager.eventHandler.saveCanvasState();
+        });
+
+        return manager;
     }
 
     displayMetricInsights(route, metricType) {

@@ -1188,7 +1188,7 @@ window.exportComparisonCSV = function() {
 // Load Google Maps API
 export function loadGoogleMapsAPI() {
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${config.googleMaps.apiKey}&libraries=geometry&callback=initMap`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${config.googleMaps.apiKey}&v=quarterly&libraries=geometry&callback=initMap`;
     script.async = true;
     script.defer = true;
     document.head.appendChild(script);

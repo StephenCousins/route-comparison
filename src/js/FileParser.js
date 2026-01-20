@@ -1,7 +1,111 @@
 // FileParser - Handles GPX and FIT file parsing
 import { Utils } from './utils.js';
 
+// Validation constants for GPS data
+const VALIDATION = {
+    LAT_MIN: -90,
+    LAT_MAX: 90,
+    LNG_MIN: -180,
+    LNG_MAX: 180,
+    ELEV_MIN: -500,    // Dead Sea is ~-430m
+    ELEV_MAX: 9000,    // Everest is ~8849m
+    MAX_SPEED_KMH: 35  // Max running speed for GPS cleaning
+};
+
 export class FileParser {
+    // Validate a single coordinate pair
+    static validateCoordinate(lat, lng) {
+        if (lat === null || lat === undefined || lng === null || lng === undefined) {
+            return { valid: false, reason: 'missing' };
+        }
+        if (isNaN(lat) || isNaN(lng) || !isFinite(lat) || !isFinite(lng)) {
+            return { valid: false, reason: 'invalid_number' };
+        }
+        if (lat < VALIDATION.LAT_MIN || lat > VALIDATION.LAT_MAX) {
+            return { valid: false, reason: 'lat_out_of_range' };
+        }
+        if (lng < VALIDATION.LNG_MIN || lng > VALIDATION.LNG_MAX) {
+            return { valid: false, reason: 'lng_out_of_range' };
+        }
+        return { valid: true };
+    }
+
+    // Validate elevation value
+    static validateElevation(elevation) {
+        if (elevation === null || elevation === undefined) {
+            return { valid: true, value: null }; // Null is acceptable for elevation
+        }
+        if (isNaN(elevation) || !isFinite(elevation)) {
+            return { valid: false, reason: 'invalid_number' };
+        }
+        if (elevation < VALIDATION.ELEV_MIN || elevation > VALIDATION.ELEV_MAX) {
+            return { valid: false, reason: 'out_of_range' };
+        }
+        return { valid: true, value: elevation };
+    }
+
+    // Validate timestamp (must be chronological)
+    static validateTimestamp(timestamp, prevTimestamp) {
+        if (timestamp === null || timestamp === undefined) {
+            return { valid: true, value: null }; // Null is acceptable
+        }
+        if (!(timestamp instanceof Date) || isNaN(timestamp.getTime())) {
+            return { valid: false, reason: 'invalid_date' };
+        }
+        if (prevTimestamp && timestamp < prevTimestamp) {
+            return { valid: false, reason: 'not_chronological' };
+        }
+        return { valid: true, value: timestamp };
+    }
+
+    // Batch validate parsed data, returning cleaned arrays
+    static validateParsedData(rawData) {
+        const validated = {
+            coordinates: [],
+            elevations: [],
+            timestamps: [],
+            heartRates: [],
+            cadences: [],
+            powers: [],
+            skipped: 0,
+            warnings: []
+        };
+
+        let lastValidTimestamp = null;
+
+        for (let i = 0; i < rawData.coordinates.length; i++) {
+            const coord = rawData.coordinates[i];
+            const coordResult = this.validateCoordinate(coord.lat, coord.lng);
+
+            if (!coordResult.valid) {
+                validated.skipped++;
+                validated.warnings.push(`Point ${i}: Invalid coordinate (${coordResult.reason})`);
+                continue;
+            }
+
+            const elevResult = this.validateElevation(rawData.elevations[i]);
+            if (!elevResult.valid) {
+                validated.warnings.push(`Point ${i}: Invalid elevation (${elevResult.reason}), using null`);
+            }
+
+            const tsResult = this.validateTimestamp(rawData.timestamps[i], lastValidTimestamp);
+            if (!tsResult.valid) {
+                validated.warnings.push(`Point ${i}: Invalid timestamp (${tsResult.reason}), using null`);
+            } else if (tsResult.value) {
+                lastValidTimestamp = tsResult.value;
+            }
+
+            // Add validated point
+            validated.coordinates.push(coord);
+            validated.elevations.push(elevResult.valid ? elevResult.value : null);
+            validated.timestamps.push(tsResult.valid ? tsResult.value : null);
+            validated.heartRates.push(rawData.heartRates[i] ?? null);
+            validated.cadences.push(rawData.cadences[i] ?? null);
+            validated.powers.push(rawData.powers[i] ?? null);
+        }
+
+        return validated;
+    }
     static parseGPX(xmlString, color, filename) {
         const parser = new DOMParser();
         const xml = parser.parseFromString(xmlString, 'text/xml');
@@ -10,8 +114,15 @@ export class FileParser {
             throw new Error('Invalid XML');
         }
 
-        const coordinates = [], elevations = [], timestamps = [];
-        const heartRates = [], cadences = [], powers = [];
+        // Collect raw data first
+        const rawData = {
+            coordinates: [],
+            elevations: [],
+            timestamps: [],
+            heartRates: [],
+            cadences: [],
+            powers: []
+        };
 
         const trkpts = xml.getElementsByTagName('trkpt');
         const points = trkpts.length > 0 ? trkpts : xml.getElementsByTagName('rtept');
@@ -19,24 +130,45 @@ export class FileParser {
         for (let i = 0; i < points.length; i++) {
             const lat = parseFloat(points[i].getAttribute('lat'));
             const lon = parseFloat(points[i].getAttribute('lon'));
-            coordinates.push({ lat, lng: lon });
+            rawData.coordinates.push({ lat, lng: lon });
 
             const eleNode = points[i].getElementsByTagName('ele')[0];
-            elevations.push(eleNode ? parseFloat(eleNode.textContent) : null);
+            rawData.elevations.push(eleNode ? parseFloat(eleNode.textContent) : null);
 
             const timeNode = points[i].getElementsByTagName('time')[0];
-            timestamps.push(timeNode ? new Date(timeNode.textContent) : null);
+            rawData.timestamps.push(timeNode ? new Date(timeNode.textContent) : null);
 
             const extensions = points[i].getElementsByTagName('extensions')[0];
-            heartRates.push(this.extractExtensionValue(extensions, ['tpx1:hr', 'gpxtpx:hr', 'ns3:hr', 'hr', 'heartrate', 'HeartRate']));
+            rawData.heartRates.push(this.extractExtensionValue(extensions, ['tpx1:hr', 'gpxtpx:hr', 'ns3:hr', 'hr', 'heartrate', 'HeartRate']));
             const cadenceValue = this.extractExtensionValue(extensions, ['tpx1:cad', 'gpxtpx:cad', 'ns3:cad', 'cad', 'cadence', 'Cadence', 'RunCadence']);
-            cadences.push(cadenceValue !== null && cadenceValue !== undefined ? cadenceValue * 2 : null);
-            powers.push(this.extractExtensionValue(extensions, ['tpx1:power', 'power', 'Power', 'gpxtpx:power', 'ns3:power', 'pwr']));
+            rawData.cadences.push(cadenceValue !== null && cadenceValue !== undefined ? cadenceValue * 2 : null);
+            rawData.powers.push(this.extractExtensionValue(extensions, ['tpx1:power', 'power', 'Power', 'gpxtpx:power', 'ns3:power', 'pwr']));
         }
 
-        if (coordinates.length === 0) {
+        if (rawData.coordinates.length === 0) {
             throw new Error('No track points found');
         }
+
+        // Validate parsed data
+        const validated = this.validateParsedData(rawData);
+
+        // Log warnings if any
+        if (validated.warnings.length > 0) {
+            console.warn(`GPX ${filename}: ${validated.skipped} points skipped during validation`);
+            if (validated.warnings.length <= 10) {
+                validated.warnings.forEach(w => console.warn(w));
+            } else {
+                console.warn(`First 10 of ${validated.warnings.length} warnings:`);
+                validated.warnings.slice(0, 10).forEach(w => console.warn(w));
+            }
+        }
+
+        // Throw if no valid points remain
+        if (validated.coordinates.length === 0) {
+            throw new Error('No valid track points after validation');
+        }
+
+        const { coordinates, elevations, timestamps, heartRates, cadences, powers } = validated;
 
         // Calculate speeds and paces
         const speeds = [], paces = [];
@@ -58,8 +190,13 @@ export class FileParser {
             }
         }
 
+        // Clean GPS data (filter outliers and smooth)
+        const cleanedData = Utils.cleanGPSData(speeds, paces, coordinates, timestamps, VALIDATION.MAX_SPEED_KMH);
+        const smoothedSpeeds = Utils.rollingMedian(cleanedData.speeds, 5);
+        const smoothedPaces = Utils.rollingMedian(cleanedData.paces, 5);
+
         return this.createRouteData(filename, color, coordinates, elevations, timestamps,
-            heartRates, cadences, powers, speeds, paces);
+            heartRates, cadences, powers, smoothedSpeeds, smoothedPaces);
     }
 
     static extractExtensionValue(extensions, tagNames) {
@@ -135,14 +272,19 @@ export class FileParser {
                     return;
                 }
 
+                // Clean GPS data (filter outliers and smooth)
+                const cleanedData = Utils.cleanGPSData(speeds, paces, coordinates, timestamps, VALIDATION.MAX_SPEED_KMH);
+                const smoothedSpeeds = Utils.rollingMedian(cleanedData.speeds, 5);
+                const smoothedPaces = Utils.rollingMedian(cleanedData.paces, 5);
+
                 // Debug logging
-                const nonNullSpeeds = speeds.filter(s => s !== null && s !== undefined);
+                const nonNullSpeeds = smoothedSpeeds.filter(s => s !== null && s !== undefined);
                 console.log('FIT File Parsed:');
                 console.log(`  Total points: ${coordinates.length}`);
-                console.log(`  Speed values: ${nonNullSpeeds.length} non-null of ${speeds.length} total`);
+                console.log(`  Speed values: ${nonNullSpeeds.length} non-null of ${smoothedSpeeds.length} total`);
 
                 resolve(this.createRouteData(filename, color, coordinates, elevations,
-                    timestamps, heartRates, cadences, powers, speeds, paces));
+                    timestamps, heartRates, cadences, powers, smoothedSpeeds, smoothedPaces));
             });
         });
     }
