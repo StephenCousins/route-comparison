@@ -74,6 +74,7 @@ class RouteOverlayApp {
         const signOutBtn = document.getElementById('signOutBtn');
         const userInfo = document.getElementById('userInfo');
         const userName = document.getElementById('userName');
+        const userAvatar = document.getElementById('userAvatar');
         const savedSessionsList = document.getElementById('savedSessionsList');
         const saveBtn = document.getElementById('saveCurrentBtn');
 
@@ -88,6 +89,12 @@ class RouteOverlayApp {
                 signInBtn.classList.add('hidden');
                 userInfo.classList.remove('hidden');
                 userName.textContent = user.displayName || user.email;
+                if (user.photoURL) {
+                    userAvatar.src = user.photoURL;
+                    userAvatar.classList.remove('hidden');
+                } else {
+                    userAvatar.classList.add('hidden');
+                }
                 this.storageManager.setUser(user.uid);
                 await this.loadSavedSessions();
             } else {
