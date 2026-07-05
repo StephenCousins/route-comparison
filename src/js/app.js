@@ -500,6 +500,7 @@ class RouteOverlayApp {
         checkbox.className = 'compare-checkbox';
         checkbox.checked = route.selected;
         checkbox.title = 'Include in comparison';
+        checkbox.setAttribute('aria-label', `Include ${route.displayName} in comparison`);
         checkbox.addEventListener('click', (e) => e.stopPropagation());
         checkbox.addEventListener('change', () => {
             route.selected = checkbox.checked;
@@ -535,6 +536,9 @@ class RouteOverlayApp {
         displayName.contentEditable = true;
         displayName.textContent = route.displayName;
         displayName.spellcheck = false;
+        displayName.title = 'Click to rename';
+        displayName.setAttribute('role', 'textbox');
+        displayName.setAttribute('aria-label', 'Route name (click to rename)');
 
         displayName.addEventListener('blur', () => {
             route.displayName = displayName.textContent.trim() || route.filename;

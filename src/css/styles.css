@@ -1770,3 +1770,11 @@ tr:hover {
 
     #playbackControls { left: 20px; right: 20px; bottom: 12px; justify-content: center; }
 }
+
+/* --- Drop zone first-run polish (Fable L4) --- */
+#dropZone .dropzone-icon { font-size: 32px; margin-bottom: 8px; }
+#dropZone .dropzone-title { color: var(--text); font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+#dropZone .dropzone-sub { color: var(--text-muted); font-size: 13px; margin-bottom: 10px; }
+#dropZone .dropzone-note { color: var(--text-muted); font-size: 11px; }
+/* Rename affordance: the display name is editable — show a text caret. */
+.file-display-name { cursor: text; }

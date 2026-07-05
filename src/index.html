@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GPX & FIT Route Overlay</title>
+    <title>Route Overlay — Compare GPX & FIT runs</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>🏃</text></svg>">
     <link rel="stylesheet" href="css/styles.css">
 
     <!-- Firebase SDK -->
@@ -44,8 +45,10 @@
             </div>
 
             <div id="dropZone">
-                <p>Drop GPX or FIT files here</p>
-                <p>or click to browse</p>
+                <div class="dropzone-icon" aria-hidden="true">📂</div>
+                <p class="dropzone-title">Drop GPX or FIT files here</p>
+                <p class="dropzone-sub">or click to browse — add several to compare them</p>
+                <p class="dropzone-note">Files are read in your browser; nothing is uploaded.</p>
                 <input type="file" multiple accept=".gpx,.fit">
             </div>
 
