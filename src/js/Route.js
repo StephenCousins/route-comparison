@@ -17,7 +17,7 @@ export class Route {
         this.timestamps = data.timestamps || [];
         this.stats = data.stats;
         this.visible = true;
-        this.selected = false;
+        this.selected = true; // included in the comparison by default; uncheck to exclude
         this.isPlaying = false;
 
         // Map objects

@@ -13,7 +13,11 @@ class RouteOverlayApp {
     constructor() {
         this.routes = [];
         this.colorIndex = 0;
-        this.compareMode = false;
+        // Comparison is automatic: every loaded route is included by default and
+        // the panel opens as soon as 2+ are selected. This flag tracks when the
+        // user has manually dismissed the panel so it doesn't reappear until they
+        // change the selection or reopen it.
+        this.comparisonDismissed = false;
         this.highlightedRoute = null;
         this.currentUser = null;
 
@@ -204,7 +208,9 @@ class RouteOverlayApp {
         }
 
         this.mapManager.fitToRoutes(this.routes);
+        this.comparisonDismissed = false;
         this.updateUI();
+        this.updateComparison();
     }
 
     setupDropZones() {
@@ -271,7 +277,9 @@ class RouteOverlayApp {
         }
 
         this.mapManager.fitToRoutes(this.routes);
+        this.comparisonDismissed = false;
         this.updateUI();
+        this.updateComparison();
     }
 
     handleRouteMouseOver(route, event) {
@@ -289,11 +297,10 @@ class RouteOverlayApp {
     }
 
     handleRouteClick(route) {
-        if (this.compareMode) {
-            route.selected = !route.selected;
-            this.updateUI();
-            this.updateComparison();
-        }
+        route.selected = !route.selected;
+        this.comparisonDismissed = false;
+        this.updateUI();
+        this.updateComparison();
     }
 
     highlightRoute(route) {
@@ -326,16 +333,16 @@ class RouteOverlayApp {
         });
     }
 
+    // The header button now just shows or re-opens the comparison panel — there
+    // is no separate "compare mode" any more; selection is always live.
     setupCompareMode() {
         document.getElementById('compareBtn').addEventListener('click', () => {
-            this.compareMode = !this.compareMode;
-            document.getElementById('compareBtn').classList.toggle('active');
-            document.getElementById('compareBtn').textContent = this.compareMode ? 'Exit Compare' : 'Compare Routes';
-            document.getElementById('fileList').classList.toggle('compare-mode', this.compareMode);
-
-            if (!this.compareMode) {
-                this.routes.forEach(r => r.selected = false);
+            const panelShown = document.getElementById('comparisonPanel').classList.contains('show');
+            if (panelShown) {
                 this.closeComparison();
+            } else {
+                this.comparisonDismissed = false;
+                this.updateComparison();
             }
             this.updateUI();
         });
@@ -365,12 +372,33 @@ class RouteOverlayApp {
         const dropZone = document.getElementById('dropZone');
         const compactDropZone = document.getElementById('compactDropZone');
         const saveBtn = document.getElementById('saveCurrentBtn');
+        const compareBtn = document.getElementById('compareBtn');
+        const compareHint = document.getElementById('compareHint');
 
         // Show/hide save button
         if (this.currentUser && this.routes.length > 0) {
             saveBtn.classList.add('visible');
         } else {
             saveBtn.classList.remove('visible');
+        }
+
+        // Prominent "Compare N routes" button: only meaningful with 2+ selected.
+        // Label reflects whether the panel is (about to be) open.
+        const selectedCount = this.routes.filter(r => r.selected).length;
+        const panelWillShow = selectedCount >= 2 && !this.comparisonDismissed;
+        if (selectedCount >= 2) {
+            compareBtn.classList.add('visible');
+            compareBtn.textContent = panelWillShow ? 'Hide comparison' : `Compare ${selectedCount} routes`;
+        } else {
+            compareBtn.classList.remove('visible');
+        }
+
+        // Nudge when a single file is loaded — comparison needs a second one.
+        if (this.routes.length === 1) {
+            compareHint.textContent = 'Add one more file to compare them';
+            compareHint.classList.add('visible');
+        } else {
+            compareHint.classList.remove('visible');
         }
 
         if (this.routes.length === 0) {
@@ -396,14 +424,20 @@ class RouteOverlayApp {
         item.className = 'file-item';
         if (route.selected) item.classList.add('selected');
 
-        // Checkbox for compare mode
-        if (this.compareMode) {
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.className = 'compare-checkbox';
-            checkbox.checked = route.selected;
-            item.appendChild(checkbox);
-        }
+        // Always-visible "include in comparison" checkbox.
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'compare-checkbox';
+        checkbox.checked = route.selected;
+        checkbox.title = 'Include in comparison';
+        checkbox.addEventListener('click', (e) => e.stopPropagation());
+        checkbox.addEventListener('change', () => {
+            route.selected = checkbox.checked;
+            this.comparisonDismissed = false;
+            this.updateUI();
+            this.updateComparison();
+        });
+        item.appendChild(checkbox);
 
         // Header with number and color
         const header = document.createElement('div');
@@ -538,11 +572,10 @@ class RouteOverlayApp {
         item.addEventListener('mouseenter', () => this.highlightRoute(route));
         item.addEventListener('mouseleave', () => this.unhighlightRoute());
         item.addEventListener('click', () => {
-            if (this.compareMode) {
-                route.selected = !route.selected;
-                this.updateUI();
-                this.updateComparison();
-            }
+            route.selected = !route.selected;
+            this.comparisonDismissed = false;
+            this.updateUI();
+            this.updateComparison();
         });
 
         item.appendChild(header);
@@ -1022,7 +1055,8 @@ class RouteOverlayApp {
             raceBtn.disabled = routesWithTimestamps.length < 2;
         }
 
-        panel.classList.add('show');
+        // Auto-open unless the user has explicitly dismissed the panel.
+        panel.classList.toggle('show', !this.comparisonDismissed);
 
         // Build comparison table
         const avg = (arr) => arr && arr.length > 0 ? arr.filter(v => v !== null).reduce((a, b) => a + b, 0) / arr.filter(v => v !== null).length : null;
@@ -1064,7 +1098,9 @@ class RouteOverlayApp {
     }
 
     closeComparison() {
+        this.comparisonDismissed = true;
         document.getElementById('comparisonPanel').classList.remove('show');
+        this.updateUI();
     }
 
     exportComparisonCSV() {

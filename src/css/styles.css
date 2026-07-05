@@ -81,24 +81,37 @@ body {
     color: #333;
     margin-bottom: 10px;
 }
+/* Prominent primary action — hidden until 2+ routes are selected (see updateUI). */
 #compareBtn {
     background: #1a73e8;
     color: white;
     border: none;
-    padding: 10px;
+    padding: 12px;
     border-radius: 6px;
     cursor: pointer;
-    font-weight: 500;
-    font-size: 14px;
+    font-weight: 600;
+    font-size: 15px;
     width: 100%;
+    box-shadow: 0 2px 6px rgba(26, 115, 232, 0.3);
     transition: all 0.2s;
+    display: none;
+}
+#compareBtn.visible {
+    display: block;
 }
 #compareBtn:hover {
     background: #1557b0;
 }
-#compareBtn.active {
-    background: #34a853;
-}       
+#compareHint {
+    margin-top: 10px;
+    font-size: 12px;
+    color: #5f6368;
+    text-align: center;
+    display: none;
+}
+#compareHint.visible {
+    display: block;
+}
 #compactDropZone {
     border: 2px dashed #ccc;
     border-radius: 6px;
@@ -186,20 +199,24 @@ body {
     background: #e8f0fe;
     box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.3);
 }
+/* Included in the comparison (the default state for every loaded route). */
 .file-item.selected {
-    border-color: #ffc107;
-    background: #fff8e1;
+    border-color: #1a73e8;
+    background: #f5f9ff;
+}
+/* Excluded from the comparison — dimmed so the on/off state reads at a glance. */
+.file-item:not(.selected) {
+    opacity: 0.6;
+    border-style: dashed;
 }
 .compare-checkbox {
     position: absolute;
     top: 10px;
     right: 10px;
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     cursor: pointer;
-    display: none;
-}
-.compare-mode .compare-checkbox {
+    accent-color: #1a73e8;
     display: block;
 }
 .file-header {
