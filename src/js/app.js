@@ -8,6 +8,7 @@ import { FileParser } from './FileParser.js';
 import { FirebaseAuthManager, FirebaseStorageManager, initializeFirebase, isFirebaseInitialized } from './FirebaseManager.js';
 import { InsightsManager } from './InsightsManager.js';
 import { config } from './config.js';
+import { showToast } from './toast.js';
 
 class RouteOverlayApp {
     constructor() {
@@ -175,7 +176,7 @@ class RouteOverlayApp {
 
     async saveCurrentSession() {
         if (this.routes.length === 0) {
-            alert('No routes to save');
+            showToast('No routes to save');
             return;
         }
 
@@ -203,7 +204,7 @@ class RouteOverlayApp {
 
         const sessionId = await this.storageManager.saveRoutes(routesData);
         if (sessionId) {
-            alert('Session saved!');
+            showToast('Session saved!', 'success');
             await this.loadSavedSessions();
         }
     }
@@ -211,7 +212,7 @@ class RouteOverlayApp {
     async loadSession(sessionId) {
         const session = await this.storageManager.loadSession(sessionId);
         if (!session) {
-            alert('Failed to load session');
+            showToast('Failed to load session', 'error');
             return;
         }
 
@@ -305,7 +306,7 @@ class RouteOverlayApp {
                     const arrayBuffer = await file.arrayBuffer();
                     routeData = await FileParser.parseFIT(arrayBuffer, color, file.name);
                 } else {
-                    alert(`Unsupported file type: ${file.name}`);
+                    showToast(`Unsupported file type: ${file.name}`);
                     continue;
                 }
 
@@ -321,7 +322,7 @@ class RouteOverlayApp {
                 this.colorIndex++;
             } catch (error) {
                 console.error(`Error processing ${file.name}:`, error);
-                alert(`Failed to process ${file.name}: ${error.message}`);
+                showToast(`Failed to process ${file.name}: ${error.message}`, "error");
             }
         }
 
@@ -664,7 +665,7 @@ class RouteOverlayApp {
         const validRoutes = selectedRoutes.filter(r => r[config.data] && r[config.data].length > 0);
 
         if (validRoutes.length < 2) {
-            alert(`Please select at least 2 routes with ${config.name.toLowerCase()} data`);
+            showToast(`Please select at least 2 routes with ${config.name.toLowerCase()} data`);
             return;
         }
 
@@ -676,7 +677,7 @@ class RouteOverlayApp {
 
         // Check if we have at least 2 routes
         if (selectedRoutes.length < 2) {
-            alert('Please select at least 2 routes to compare time gaps');
+            showToast('Please select at least 2 routes to compare time gaps');
             return;
         }
 
@@ -686,7 +687,7 @@ class RouteOverlayApp {
         );
 
         if (routesWithTimestamps.length < 2) {
-            alert('Time Gap analysis requires at least 2 routes with timestamp data. Routes from GPX/FIT files with recorded time are needed.');
+            showToast('Time Gap analysis requires at least 2 routes with timestamp data. Routes from GPX/FIT files with recorded time are needed.');
             return;
         }
 
@@ -698,7 +699,7 @@ class RouteOverlayApp {
         const timeGapData = Utils.calculateTimeGaps(referenceRoute, comparisonRoutes);
 
         if (!timeGapData || timeGapData.gaps.length === 0) {
-            alert('Could not calculate time gaps. Routes may not have sufficient timestamp data.');
+            showToast('Could not calculate time gaps. Routes may not have sufficient timestamp data.');
             return;
         }
 
@@ -711,7 +712,7 @@ class RouteOverlayApp {
 
         // Check if we have at least 2 routes
         if (selectedRoutes.length < 2) {
-            alert('Please select at least 2 routes to compare splits');
+            showToast('Please select at least 2 routes to compare splits');
             return;
         }
 
@@ -721,7 +722,7 @@ class RouteOverlayApp {
         );
 
         if (routesWithTimestamps.length < 2) {
-            alert('Split comparison requires at least 2 routes with timestamp data.');
+            showToast('Split comparison requires at least 2 routes with timestamp data.');
             return;
         }
 
@@ -871,7 +872,7 @@ class RouteOverlayApp {
         const selectedRoutes = this.routes.filter(r => r.selected);
 
         if (selectedRoutes.length < 2) {
-            alert('Please select at least 2 routes to compare segments');
+            showToast('Please select at least 2 routes to compare segments');
             return;
         }
 
@@ -881,7 +882,7 @@ class RouteOverlayApp {
         );
 
         if (routesWithTimestamps.length < 2) {
-            alert('Segment analysis requires at least 2 routes with timestamp data.');
+            showToast('Segment analysis requires at least 2 routes with timestamp data.');
             return;
         }
 
@@ -905,22 +906,22 @@ class RouteOverlayApp {
 
         // Validate inputs
         if (isNaN(startKm) || isNaN(endKm)) {
-            alert('Please enter valid distance values');
+            showToast('Please enter valid distance values');
             return;
         }
 
         if (startKm >= endKm) {
-            alert('Start distance must be less than end distance');
+            showToast('Start distance must be less than end distance');
             return;
         }
 
         if (startKm < 0) {
-            alert('Start distance cannot be negative');
+            showToast('Start distance cannot be negative');
             return;
         }
 
         if (!this.segmentRoutes || this.segmentRoutes.length < 2) {
-            alert('No routes selected for comparison');
+            showToast('No routes selected for comparison');
             return;
         }
 
@@ -934,7 +935,7 @@ class RouteOverlayApp {
         const validResults = results.filter(r => r.metrics !== null);
 
         if (validResults.length < 2) {
-            alert(`Segment ${startKm.toFixed(1)}-${endKm.toFixed(1)} km is outside the range of one or more routes`);
+            showToast(`Segment ${startKm.toFixed(1)}-${endKm.toFixed(1)} km is outside the range of one or more routes`);
             return;
         }
 
@@ -1040,7 +1041,7 @@ class RouteOverlayApp {
         const selectedRoutes = this.routes.filter(r => r.selected);
 
         if (selectedRoutes.length < 2) {
-            alert('Select at least 2 routes to race');
+            showToast('Select at least 2 routes to race');
             return;
         }
 
@@ -1159,7 +1160,7 @@ class RouteOverlayApp {
         const selectedRoutes = this.routes.filter(r => r.selected);
 
         if (selectedRoutes.length < 2) {
-            alert('Please select at least 2 routes to export');
+            showToast('Please select at least 2 routes to export');
             return;
         }
 

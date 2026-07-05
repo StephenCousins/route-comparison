@@ -1,5 +1,6 @@
 // Firebase Authentication and Storage Managers
 import { config } from './config.js';
+import { showToast } from './toast.js';
 
 let firebaseApp, auth, db, storage;
 let firebaseInitialized = false;
@@ -32,7 +33,7 @@ export class FirebaseAuthManager {
 
     async signInWithGoogle() {
         if (!firebaseInitialized) {
-            alert('Firebase not configured. Please add your Firebase credentials.');
+            showToast('Firebase not configured. Please add your Firebase credentials.', 'error');
             return null;
         }
 
@@ -44,7 +45,7 @@ export class FirebaseAuthManager {
             return result.user;
         } catch (error) {
             console.error('Sign in error:', error);
-            alert('Sign in failed: ' + error.message);
+            showToast('Sign in failed: ' + error.message, 'error');
             return null;
         }
     }
@@ -167,7 +168,7 @@ export class FirebaseStorageManager {
             return docRef.id;
         } catch (error) {
             console.error('Save error:', error);
-            alert('Failed to save routes: ' + error.message);
+            showToast('Failed to save routes: ' + error.message, 'error');
             return false;
         }
     }

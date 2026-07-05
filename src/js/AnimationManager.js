@@ -1,4 +1,5 @@
 // AnimationManager - Handles route playback
+import { showToast } from './toast.js';
 
 export class AnimationManager {
     constructor(mapManager) {
@@ -31,7 +32,7 @@ export class AnimationManager {
 
     start(route) {
         if (!route.timestamps || route.timestamps.length === 0) {
-            alert('No timestamp data available for animation');
+            showToast('No timestamp data available for animation');
             return false;
         }
 
@@ -132,7 +133,7 @@ export class AnimationManager {
         );
 
         if (validRoutes.length < 2) {
-            alert('Need at least 2 routes with timestamp data to race');
+            showToast('Need at least 2 routes with timestamp data to race');
             return false;
         }
 
