@@ -814,7 +814,7 @@ class RouteOverlayApp {
                 <div class="route-header-content">
                     <div class="route-color-dot" style="background: ${route.color}"></div>
                     <span>${route.displayName}</span>
-                    ${routeIdx === referenceIdx ? '<span class="reference-badge">REF</span>' : ''}
+                    ${routeIdx === referenceIdx ? '<span class="reference-badge" title="Reference route — all time gaps are measured against this one (the first selected route)">REF</span>' : ''}
                 </div>
             </th>`;
 
