@@ -9,7 +9,19 @@ let fitParserPromise = null;
 function loadFitParser() {
     if (!fitParserPromise) {
         fitParserPromise = import('https://esm.run/fit-file-parser@1.9.0')
-            .then((mod) => mod.default || mod)
+            .then((mod) => {
+                // fit-file-parser ships CommonJS with `exports.default = FitParser`,
+                // so the CDN's ESM default is `{ default: FitParser }` — the real
+                // constructor is nested. Unwrap `default` until we reach the function.
+                let ctor = mod;
+                for (let i = 0; i < 3 && ctor && typeof ctor !== 'function'; i++) {
+                    ctor = ctor.default;
+                }
+                if (typeof ctor !== 'function') {
+                    throw new Error('FIT parser module did not expose a constructor.');
+                }
+                return ctor;
+            })
             .catch((err) => {
                 // Clear the cache so a later upload can retry after a transient
                 // network/CDN failure rather than being stuck on the rejection.
