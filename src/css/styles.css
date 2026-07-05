@@ -1708,3 +1708,65 @@ tr:hover {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
 }
+
+/* ============================================================
+   Responsive — phones/tablets (<=768px). Desktop is unaffected.
+   ============================================================ */
+@media (max-width: 768px) {
+    #header h1 { font-size: 16px; }
+    #signInBtn { padding: 6px 10px; font-size: 13px; }
+
+    /* Sidebar becomes a full-height overlay so the map gets the full width. */
+    #sidebar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 85%;
+        max-width: 320px;
+        z-index: 100;
+        box-shadow: 2px 0 12px rgba(0,0,0,0.2);
+    }
+
+    /* Comparison panel: taller sheet, header stacks, actions scroll across. */
+    #comparisonPanel { max-height: 75vh; }
+    .comparison-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    .comparison-actions {
+        gap: 10px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+    }
+    .cmp-group--actions { margin-left: 0; }
+
+    /* Touch targets — nothing below ~40px. */
+    .cmp-btn,
+    .file-actions button,
+    .session-load-btn,
+    .session-delete-btn,
+    #stopPlaybackBtn,
+    .chart-control-btn {
+        min-height: 40px;
+    }
+    .cmp-btn--icon { min-width: 40px; }
+
+    /* Modals fill the screen with tighter padding. */
+    .modal-content,
+    .insights-modal-content,
+    .splits-modal-content,
+    .segment-modal-content,
+    .sessions-modal-content {
+        width: 100%;
+        max-width: 100%;
+        max-height: 92vh;
+        padding: 15px;
+    }
+
+    /* Wide data tables scroll instead of overflowing the page. */
+    .comparison-content,
+    .splits-table-container { overflow-x: auto; }
+
+    #playbackControls { left: 20px; right: 20px; bottom: 12px; justify-content: center; }
+}
