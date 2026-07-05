@@ -1702,3 +1702,9 @@ tr:hover {
 .toast--error   { border-left-color: var(--danger); }
 .toast--warning { border-left-color: #fbbc04; }
 .toast--info    { border-left-color: var(--primary); }
+
+/* --- Accessibility: visible keyboard focus everywhere --- */
+:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}

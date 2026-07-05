@@ -44,6 +44,26 @@ class RouteOverlayApp {
         this.setupSidebarToggle();
         this.setupSessionsModal();
         this.setupPlaybackControls();
+        this.setupModalDismissal();
+    }
+
+    // Every modal can now be closed with Escape or a backdrop click, reusing its
+    // own .modal-close handler so any per-modal cleanup still runs.
+    setupModalDismissal() {
+        const modalIds = ['elevationModal', 'insightsModal', 'splitsModal', 'segmentModal', 'sessionsModal'];
+        const closeModal = (m) => {
+            const btn = m.querySelector('.modal-close');
+            if (btn) btn.click(); else m.classList.remove('show');
+        };
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const open = modalIds.map(id => document.getElementById(id)).find(m => m && m.classList.contains('show'));
+            if (open) closeModal(open);
+        });
+        modalIds.forEach(id => {
+            const m = document.getElementById(id);
+            if (m) m.addEventListener('click', (e) => { if (e.target === m) closeModal(m); });
+        });
     }
 
     // A single Stop button that halts whatever is playing — a race or a
