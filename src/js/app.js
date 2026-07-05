@@ -346,10 +346,10 @@ class RouteOverlayApp {
     }
 
     handleRouteClick(route) {
-        route.selected = !route.selected;
-        this.comparisonDismissed = false;
-        this.updateUI();
-        this.updateComparison();
+        // Clicking a route's line on the map opens that route's insights, rather
+        // than silently toggling its inclusion in the comparison.
+        const index = this.routes.indexOf(route);
+        this.insightsManager.showInsightsModal(route, index);
     }
 
     highlightRoute(route) {
@@ -617,14 +617,14 @@ class RouteOverlayApp {
         actions.appendChild(toggleBtn);
         actions.appendChild(removeBtn);
 
-        // Events
+        // Events. Selection (include-in-comparison) is owned solely by the
+        // checkbox — clicking the card body instead zooms the map to this route,
+        // a useful "focus" action that also can't accidentally drop it from the
+        // comparison.
         item.addEventListener('mouseenter', () => this.highlightRoute(route));
         item.addEventListener('mouseleave', () => this.unhighlightRoute());
         item.addEventListener('click', () => {
-            route.selected = !route.selected;
-            this.comparisonDismissed = false;
-            this.updateUI();
-            this.updateComparison();
+            if (route.visible) this.mapManager.fitToRoutes([route]);
         });
 
         item.appendChild(header);
