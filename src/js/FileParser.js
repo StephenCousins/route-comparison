@@ -1,6 +1,25 @@
 // FileParser - Handles GPX and FIT file parsing
 import { Utils } from './utils.js';
 
+// The FIT parser is an ESM package pulled from a CDN. Load it on demand and
+// cache the import promise: the first FIT upload triggers the fetch, later ones
+// reuse it, and a genuine load failure surfaces as a clear error instead of the
+// old race where `window.FitParser` could still be undefined at upload time.
+let fitParserPromise = null;
+function loadFitParser() {
+    if (!fitParserPromise) {
+        fitParserPromise = import('https://esm.run/fit-file-parser@1.9.0')
+            .then((mod) => mod.default || mod)
+            .catch((err) => {
+                // Clear the cache so a later upload can retry after a transient
+                // network/CDN failure rather than being stuck on the rejection.
+                fitParserPromise = null;
+                throw new Error('Could not load the FIT parser from the CDN — check your connection and try again.');
+            });
+    }
+    return fitParserPromise;
+}
+
 // Validation constants for GPS data
 const VALIDATION = {
     LAT_MIN: -90,
@@ -211,13 +230,9 @@ export class FileParser {
         return null;
     }
 
-    static parseFIT(arrayBuffer, color, filename) {
+    static async parseFIT(arrayBuffer, color, filename) {
+        const FitParser = await loadFitParser();
         return new Promise((resolve, reject) => {
-            if (!window.FitParser) {
-                reject(new Error('FIT parser not loaded'));
-                return;
-            }
-
             const fitParser = new FitParser({
                 force: true,
                 speedUnit: 'km/h',
