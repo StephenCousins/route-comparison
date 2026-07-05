@@ -73,18 +73,26 @@
         <div class="comparison-header">
             <h3>Route Comparison</h3>
             <div class="comparison-actions">
-                <button class="comparison-elevation-btn" data-metric="elevation" onclick="compareMetric('elevation')">Elevation</button>
-                <button class="comparison-elevation-btn" data-metric="speed" onclick="compareMetric('speed')">Speed</button>
-                <button class="comparison-elevation-btn" data-metric="pace" onclick="compareMetric('pace')">Pace</button>
-                <button class="comparison-elevation-btn" data-metric="heartrate" onclick="compareMetric('heartrate')">Heart Rate</button>
-                <button class="comparison-elevation-btn" data-metric="cadence" onclick="compareMetric('cadence')">Cadence</button>
-                <button class="comparison-elevation-btn" data-metric="power" onclick="compareMetric('power')">Power</button>
-                <button class="comparison-timegap-btn" data-metric="timegap" onclick="compareTimeGap()">Time Gap</button>
-                <button class="comparison-splits-btn" data-metric="splits" onclick="compareSplits()">Splits</button>
-                <button class="comparison-segment-btn" data-metric="segment" onclick="compareSegment()">Segment</button>
-                <button class="comparison-race-btn" data-metric="race" onclick="startRace()">Race</button>
-                <button class="comparison-export-btn" onclick="exportComparisonCSV()">Export CSV</button>
-                <button class="comparison-close" onclick="closeComparison()">Close</button>
+                <div class="cmp-group" role="group" aria-label="Charts">
+                    <span class="cmp-group-label">Charts</span>
+                    <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="elevation" onclick="compareMetric('elevation')">Elevation</button>
+                    <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="speed" onclick="compareMetric('speed')">Speed</button>
+                    <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="pace" onclick="compareMetric('pace')">Pace</button>
+                    <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="heartrate" onclick="compareMetric('heartrate')">Heart Rate</button>
+                    <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="cadence" onclick="compareMetric('cadence')">Cadence</button>
+                    <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="power" onclick="compareMetric('power')">Power</button>
+                </div>
+                <div class="cmp-group" role="group" aria-label="Analyse">
+                    <span class="cmp-group-label">Analyse</span>
+                    <button class="cmp-btn cmp-btn--analyse comparison-timegap-btn" data-metric="timegap" title="Needs 2+ routes with recorded time" onclick="compareTimeGap()">Time Gap</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-splits-btn" data-metric="splits" title="Needs 2+ routes with recorded time" onclick="compareSplits()">Splits</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-segment-btn" data-metric="segment" title="Needs 2+ routes with recorded time" onclick="compareSegment()">Segment</button>
+                </div>
+                <div class="cmp-group cmp-group--actions">
+                    <button class="cmp-btn cmp-btn--primary comparison-race-btn" data-metric="race" title="Needs 2+ routes with recorded time" onclick="startRace()">Race</button>
+                    <button class="cmp-btn cmp-btn--ghost comparison-export-btn" onclick="exportComparisonCSV()">Export CSV</button>
+                    <button class="cmp-btn cmp-btn--icon comparison-close" onclick="closeComparison()" aria-label="Close comparison" title="Close">&times;</button>
+                </div>
             </div>
         </div>
         <div class="comparison-content">

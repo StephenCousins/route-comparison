@@ -1,3 +1,15 @@
+:root {
+    --primary: #1a73e8;
+    --primary-dark: #1557b0;
+    --success: #34a853;
+    --danger: #ea4335;
+    --danger-dark: #c5221f;
+    --surface-2: #f1f3f4;
+    --border: #e0e0e0;
+    --text: #202124;
+    --text-muted: #5f6368;
+    --accent-race: linear-gradient(135deg, #ff9a56 0%, #ff6b35 100%);
+}
 * {
     margin: 0;
     padding: 0;
@@ -472,82 +484,95 @@ body {
 }
 .comparison-actions {
     display: flex;
-    gap: 6px;
+    align-items: flex-end;
+    gap: 16px;
     flex-wrap: wrap;
 }
-.comparison-elevation-btn {
-    background: #1a73e8;
-    color: white;
-    border: none;
+/* Buttons are grouped (Charts / Analyse / Actions) with a small caption so the
+   row reads as three clusters rather than twelve competing controls. */
+.cmp-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    position: relative;
+}
+.cmp-group--actions {
+    margin-left: auto;
+}
+.cmp-group-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    margin-right: 4px;
+    align-self: center;
+}
+/* One coherent button; variants change only color/emphasis, not shape. */
+.cmp-btn {
+    border: 1px solid transparent;
     padding: 6px 12px;
     border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
     font-weight: 500;
+    transition: all 0.15s;
+    line-height: 1.4;
 }
-.comparison-elevation-btn:hover {
-    background: #1557b0;
-}
-.comparison-elevation-btn:disabled {
-    background: #ccc;
-    cursor: not-allowed;
-}
-.comparison-timegap-btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-.comparison-timegap-btn:hover {
-    background: linear-gradient(135deg, #5a6fd6 0%, #6a4190 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
-}
-.comparison-timegap-btn:disabled {
-    background: #ccc;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-}
-.comparison-splits-btn {
-    background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-.comparison-splits-btn:hover {
-    background: linear-gradient(135deg, #0f8a7f 0%, #32d870 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(17, 153, 142, 0.4);
-}
-.comparison-splits-btn:disabled {
-    background: #ccc;
+.cmp-btn:disabled {
+    background: var(--surface-2);
+    color: #9aa0a6;
+    border-color: transparent;
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
 }
-.comparison-close {
-    background: #ea4335;
+/* Charts — the six metric buttons, a flat primary segment group. */
+.cmp-btn--metric {
+    background: var(--primary);
     color: white;
-    border: none;
-    padding: 6px 14px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
 }
-.comparison-close:hover {
-    background: #d33828;
+.cmp-btn--metric:hover:not(:disabled) {
+    background: var(--primary-dark);
+}
+/* Analyse — neutral secondary. */
+.cmp-btn--analyse {
+    background: white;
+    color: var(--text);
+    border-color: var(--border);
+}
+.cmp-btn--analyse:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+/* The single colourful moment: Race. */
+.cmp-btn--primary {
+    background: var(--accent-race);
+    color: white;
+}
+.cmp-btn--primary:hover:not(:disabled) {
+    filter: brightness(0.95);
+    box-shadow: 0 2px 8px rgba(255, 107, 53, 0.35);
+}
+/* Export — quiet ghost button. */
+.cmp-btn--ghost {
+    background: transparent;
+    color: var(--text-muted);
+}
+.cmp-btn--ghost:hover:not(:disabled) {
+    background: var(--surface-2);
+    color: var(--text);
+}
+/* Close — a neutral icon, not a red destructive-looking button. */
+.cmp-btn--icon {
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 20px;
+    line-height: 1;
+    padding: 4px 8px;
+}
+.cmp-btn--icon:hover:not(:disabled) {
+    background: var(--surface-2);
+    color: var(--text);
 }
 .comparison-content {
     flex: 1;
@@ -1461,72 +1486,6 @@ tr:hover {
 }
 #splitsTable tbody tr:hover .split-number {
     background: #e8f0fe;
-}
-
-/* Segment Analysis Button */
-.comparison-segment-btn {
-    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-.comparison-segment-btn:hover {
-    background: linear-gradient(135deg, #e080e8 0%, #e04a5f 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(245, 87, 108, 0.4);
-}
-.comparison-segment-btn:disabled {
-    background: #ccc;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-}
-
-/* Race Button */
-.comparison-race-btn {
-    background: linear-gradient(135deg, #ff9a56 0%, #ff6b35 100%);
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-.comparison-race-btn:hover {
-    background: linear-gradient(135deg, #ff8a43 0%, #ff5722 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(255, 107, 53, 0.4);
-}
-.comparison-race-btn:disabled {
-    background: #ccc;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-}
-
-/* Export CSV Button */
-.comparison-export-btn {
-    background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-.comparison-export-btn:hover {
-    background: linear-gradient(135deg, #138496 0%, #0f6674 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(23, 162, 184, 0.4);
 }
 
 /* Segment Modal Styles */
