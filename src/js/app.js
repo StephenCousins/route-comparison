@@ -87,8 +87,13 @@ class RouteOverlayApp {
     }
 
     async openSessionsModal() {
-        await this.loadSavedSessions();
+        // Open immediately with a loading state so a slow fetch doesn't make the
+        // button feel dead, then populate.
+        document.getElementById('sessionsEmptyState').classList.add('hidden');
+        document.getElementById('savedSessionsList').innerHTML =
+            '<div class="sessions-loading">Loading sessions…</div>';
         document.getElementById('sessionsModal').classList.add('show');
+        await this.loadSavedSessions();
     }
 
     closeSessionsModal() {
@@ -162,9 +167,16 @@ class RouteOverlayApp {
 
             const routeNames = session.routes.map(r => r.displayName || 'Unnamed').slice(0, 2);
             const moreText = session.routes.length > 2 ? ` +${session.routes.length - 2} more` : '';
+            // Show the saved date — the most useful way to tell similar sessions apart.
+            const created = session.createdAt;
+            const createdDate = created?.toDate ? created.toDate()
+                : (created?.seconds ? new Date(created.seconds * 1000) : null);
+            const dateStr = createdDate
+                ? createdDate.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+                : '';
             info.innerHTML = `
                 <div class="session-name">${routeNames.join(', ')}${moreText}</div>
-                <div class="session-meta">${session.routeCount} route${session.routeCount > 1 ? 's' : ''}</div>
+                <div class="session-meta">${session.routeCount} route${session.routeCount > 1 ? 's' : ''}${dateStr ? ' · ' + dateStr : ''}</div>
             `;
 
             const actions = document.createElement('div');
@@ -230,6 +242,13 @@ class RouteOverlayApp {
     }
 
     async loadSession(sessionId) {
+        // Loading replaces whatever is on the map — confirm if that would discard
+        // routes the user is currently working with.
+        if (this.routes.length > 0 &&
+            !confirm('Load this session? Your current routes will be replaced.')) {
+            return;
+        }
+
         const session = await this.storageManager.loadSession(sessionId);
         if (!session) {
             showToast('Failed to load session', 'error');

@@ -1778,3 +1778,14 @@ tr:hover {
 #dropZone .dropzone-note { color: var(--text-muted); font-size: 11px; }
 /* Rename affordance: the display name is editable — show a text caret. */
 .file-display-name { cursor: text; }
+
+/* --- Legibility bumps (Fable L2) + sessions loading state --- */
+.file-original-name { font-size: 11px; }
+.file-stats { font-size: 12px; }
+.stat-value { font-variant-numeric: tabular-nums; }
+.sessions-loading {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 24px 0;
+}
