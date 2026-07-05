@@ -41,6 +41,27 @@ class RouteOverlayApp {
         this.setupDropZones();
         this.setupCompareMode();
         this.setupSidebarToggle();
+        this.setupSessionsModal();
+    }
+
+    // Saved sessions live in a modal so they don't clutter the sidebar during
+    // analysis. The "Load Session" button only appears when signed in with 1+
+    // saved sessions (see loadSavedSessions).
+    setupSessionsModal() {
+        document.getElementById('loadSessionBtn').addEventListener('click', () => this.openSessionsModal());
+        document.getElementById('closeSessionsModal').addEventListener('click', () => this.closeSessionsModal());
+        document.getElementById('sessionsModal').addEventListener('click', (e) => {
+            if (e.target.id === 'sessionsModal') this.closeSessionsModal();
+        });
+    }
+
+    async openSessionsModal() {
+        await this.loadSavedSessions();
+        document.getElementById('sessionsModal').classList.add('show');
+    }
+
+    closeSessionsModal() {
+        document.getElementById('sessionsModal').classList.remove('show');
     }
 
     initMap() {
@@ -73,6 +94,8 @@ class RouteOverlayApp {
                 signInBtn.classList.remove('hidden');
                 userInfo.classList.add('hidden');
                 savedSessionsList.innerHTML = '';
+                document.getElementById('loadSessionBtn').classList.remove('visible');
+                this.closeSessionsModal();
                 this.storageManager.setUser(null);
             }
             this.updateUI();
@@ -83,6 +106,14 @@ class RouteOverlayApp {
         const sessions = await this.storageManager.getSavedSessions();
         const list = document.getElementById('savedSessionsList');
         list.innerHTML = '';
+
+        // Show the "Load Session" button only when signed in with saved sessions,
+        // and reflect the count. Empty-state text covers the "deleted them all" case.
+        const hasSessions = sessions.length > 0;
+        const loadBtn = document.getElementById('loadSessionBtn');
+        loadBtn.textContent = hasSessions ? `Load Session (${sessions.length})` : 'Load Session';
+        loadBtn.classList.toggle('visible', hasSessions && !!this.currentUser);
+        document.getElementById('sessionsEmptyState').classList.toggle('hidden', hasSessions);
 
         sessions.forEach(session => {
             const item = document.createElement('div');
@@ -211,6 +242,7 @@ class RouteOverlayApp {
         this.comparisonDismissed = false;
         this.updateUI();
         this.updateComparison();
+        this.closeSessionsModal();
     }
 
     setupDropZones() {

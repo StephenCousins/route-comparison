@@ -33,11 +33,12 @@
             <div id="sidebarHeader">
                 <h2>Routes</h2>
                 <button id="compareBtn">Compare routes</button>
-                <button id="saveCurrentBtn">Save Session</button>
+                <div id="sessionButtons">
+                    <button id="saveCurrentBtn">Save Session</button>
+                    <button id="loadSessionBtn">Load Session</button>
+                </div>
                 <p id="compareHint">Add one more file to compare them</p>
             </div>
-
-            <div id="savedSessionsList"></div>
 
             <div id="dropZone">
                 <p>Drop GPX or FIT files here</p>
@@ -178,6 +179,18 @@
                 <button id="analyzeSegmentBtn" class="analyze-segment-btn" onclick="analyzeSegment()">Compare Segment</button>
             </div>
             <div id="segmentResults" class="segment-results"></div>
+        </div>
+    </div>
+
+    <!-- Saved Sessions Modal -->
+    <div id="sessionsModal">
+        <div class="sessions-modal-content">
+            <div class="sessions-modal-header">
+                <h2>Saved Sessions</h2>
+                <button class="modal-close" id="closeSessionsModal">Close</button>
+            </div>
+            <div id="savedSessionsList"></div>
+            <p id="sessionsEmptyState" class="hidden">No saved sessions yet. Load some routes and hit “Save Session”.</p>
         </div>
     </div>
 
