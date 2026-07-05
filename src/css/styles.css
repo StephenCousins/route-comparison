@@ -437,13 +437,27 @@ body {
     padding: 12px 16px;
     border-radius: 8px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    z-index: 150;
+    z-index: 210; /* above the comparison panel (200) so it can't be covered */
     display: none;
     align-items: center;
     gap: 10px;
 }
 #playbackControls.show {
     display: flex;
+}
+#stopPlaybackBtn {
+    background: var(--danger);
+    color: white;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    transition: background 0.15s;
+}
+#stopPlaybackBtn:hover {
+    background: var(--danger-dark);
 }
 .speed-label {
     font-size: 12px;

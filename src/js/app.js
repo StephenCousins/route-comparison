@@ -42,6 +42,16 @@ class RouteOverlayApp {
         this.setupCompareMode();
         this.setupSidebarToggle();
         this.setupSessionsModal();
+        this.setupPlaybackControls();
+    }
+
+    // A single Stop button that halts whatever is playing — a race or a
+    // single-route animation (stopAll covers both and hides the controls).
+    setupPlaybackControls() {
+        document.getElementById('stopPlaybackBtn').addEventListener('click', () => {
+            this.animationManager.stopAll();
+            this.updateUI();
+        });
     }
 
     // Saved sessions live in a modal so they don't clutter the sidebar during
@@ -1036,6 +1046,9 @@ class RouteOverlayApp {
 
         const success = this.animationManager.startRace(selectedRoutes);
         if (success) {
+            // The comparison panel (bottom sheet) would otherwise cover the map
+            // and the playback controls during the race.
+            this.closeComparison();
             this.updateUI();
         }
     }
