@@ -1329,9 +1329,14 @@ tr:hover {
 }
     
 
-/* GPS Deviation Modal Styles */
-#deviationModal,
-#distanceDriftModal {
+/* Analysis Modal Styles — shared by every data-table modal (Deviation,
+   Distance Drift, Running Dynamics, Session Self-Check, HR/Cadence
+   Validation, Dropout Diagnostics). Add the "analysis-modal" class to a new
+   modal's outer <div> and "analysis-table" to its <table> to get all of this
+   for free — deliberately class-based, not #id-based, so a new modal can't
+   silently end up unstyled or with a CSS-specificity collision the way the
+   REF badge once did. */
+.analysis-modal {
     display: none;
     position: fixed;
     top: 0;
@@ -1343,8 +1348,7 @@ tr:hover {
     align-items: center;
     justify-content: center;
 }
-#deviationModal.show,
-#distanceDriftModal.show {
+.analysis-modal.show {
     display: flex;
 }
 .deviation-modal-content {
@@ -1383,64 +1387,61 @@ tr:hover {
     flex: 1;
     overflow: auto;
 }
-#deviationTable,
-#distanceDriftTable {
+.analysis-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 13px;
 }
-#deviationTable th,
-#deviationTable td,
-#distanceDriftTable th,
-#distanceDriftTable td {
+.analysis-table th,
+.analysis-table td {
     padding: 10px 12px;
     text-align: center;
     border-bottom: 1px solid #e0e0e0;
     white-space: nowrap;
 }
-#deviationTable .route-header-content,
-#distanceDriftTable .route-header-content {
+.analysis-table .route-header-content {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
 }
-#deviationTable .route-color-dot,
-#distanceDriftTable .route-color-dot {
+.analysis-table .route-color-dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
     flex-shrink: 0;
 }
-#distanceDriftTable .drift-positive {
+.analysis-table .value-positive,
+.analysis-table .drift-positive {
     color: #b26a00;
 }
-#distanceDriftTable .drift-negative {
+.analysis-table .value-negative,
+.analysis-table .drift-negative {
     color: #1a73e8;
 }
-#deviationTable .confidence-badge {
+.analysis-table .confidence-badge {
     font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     border-radius: 4px;
     padding: 1px 5px;
 }
-#deviationTable .confidence-high {
+.analysis-table .confidence-high {
     color: #1e7e34;
     border: 1px solid #1e7e34;
     background: #eaf7ee;
 }
-#deviationTable .confidence-medium {
+.analysis-table .confidence-medium {
     color: #b26a00;
     border: 1px solid #b26a00;
     background: #fff5e6;
 }
-#deviationTable .confidence-low {
+.analysis-table .confidence-low {
     color: #c62828;
     border: 1px solid #c62828;
     background: #fdecea;
 }
-#deviationTable .deviation-heatmap-toggle {
+.analysis-table .deviation-heatmap-toggle {
     font-size: 12px;
     padding: 4px 10px;
     border-radius: 4px;
@@ -1448,7 +1449,7 @@ tr:hover {
     background: white;
     cursor: pointer;
 }
-#deviationTable .deviation-heatmap-toggle.active {
+.analysis-table .deviation-heatmap-toggle.active {
     background: #1a73e8;
     color: white;
     border-color: #1a73e8;

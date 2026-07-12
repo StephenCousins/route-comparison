@@ -157,8 +157,29 @@ export class FirebaseStorageManager {
                 if (route.gpsAccuracies !== undefined && route.gpsAccuracies !== null) {
                     routeData.gpsAccuracies = roundArray(compressArray(route.gpsAccuracies));
                 }
+                if (route.verticalOscillations !== undefined && route.verticalOscillations !== null) {
+                    routeData.verticalOscillations = roundArray(compressArray(route.verticalOscillations));
+                }
+                if (route.groundContactTimes !== undefined && route.groundContactTimes !== null) {
+                    routeData.groundContactTimes = roundArray(compressArray(route.groundContactTimes));
+                }
+                if (route.verticalRatios !== undefined && route.verticalRatios !== null) {
+                    routeData.verticalRatios = roundArray(compressArray(route.verticalRatios));
+                }
+                if (route.groundContactBalances !== undefined && route.groundContactBalances !== null) {
+                    routeData.groundContactBalances = roundArray(compressArray(route.groundContactBalances));
+                }
+                if (route.stepLengths !== undefined && route.stepLengths !== null) {
+                    routeData.stepLengths = roundArray(compressArray(route.stepLengths));
+                }
+                if (route.absolutePressures !== undefined && route.absolutePressures !== null) {
+                    routeData.absolutePressures = roundArray(compressArray(route.absolutePressures));
+                }
                 if (route.device) {
                     routeData.device = route.device;
+                }
+                if (route.sessionSummary) {
+                    routeData.sessionSummary = route.sessionSummary;
                 }
 
                 return routeData;

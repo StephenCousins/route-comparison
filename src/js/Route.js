@@ -14,6 +14,13 @@ export class Route {
         this.powers = data.powers || [];
         this.gpsAccuracies = data.gpsAccuracies || [];
         this.device = data.device || null;
+        this.sessionSummary = data.sessionSummary || null;
+        this.verticalOscillations = data.verticalOscillations || [];
+        this.groundContactTimes = data.groundContactTimes || [];
+        this.verticalRatios = data.verticalRatios || [];
+        this.groundContactBalances = data.groundContactBalances || [];
+        this.stepLengths = data.stepLengths || [];
+        this.absolutePressures = data.absolutePressures || [];
         this.speeds = data.speeds || [];
         this.paces = data.paces || [];
         this.timestamps = data.timestamps || [];

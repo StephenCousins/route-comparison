@@ -87,6 +87,89 @@ export const Utils = {
         return { gain, loss };
     },
 
+    // Per-route averages for FIT running-dynamics fields (vertical
+    // oscillation, ground contact time, vertical ratio, GCT balance, step
+    // length). coverage uses verticalOscillations as the representative
+    // field — these come from the same accelerometer/footpod source on a
+    // device, so they're effectively all-present or all-absent together.
+    calculateRunningDynamicsSummary(route) {
+        const avg = (arr) => {
+            const valid = (arr || []).filter(v => v !== null && v !== undefined && !isNaN(v));
+            return valid.length > 0 ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
+        };
+
+        const total = (route.verticalOscillations || []).length;
+        const validCount = (route.verticalOscillations || [])
+            .filter(v => v !== null && v !== undefined && !isNaN(v)).length;
+
+        return {
+            verticalOscillation: avg(route.verticalOscillations),
+            groundContactTime: avg(route.groundContactTimes),
+            verticalRatio: avg(route.verticalRatios),
+            groundContactBalance: avg(route.groundContactBalances),
+            stepLength: avg(route.stepLengths),
+            coverage: total > 0 ? validCount / total : 0
+        };
+    },
+
+    // Standard barometric (International Standard Atmosphere) formula,
+    // assuming sea-level reference pressure of 101325 Pa. Day-to-day weather
+    // variation in actual sea-level pressure means the ABSOLUTE elevation
+    // this produces can be off by tens of meters — but gain/loss only cares
+    // about the relative change along the route, so that constant offset
+    // cancels out and doesn't affect the comparison this feeds.
+    pressureToElevation(pascals) {
+        if (pascals === null || pascals === undefined || isNaN(pascals) || pascals <= 0) return null;
+        const P0 = 101325;
+        return 44330 * (1 - Math.pow(pascals / P0, 1 / 5.255));
+    },
+
+    // Compares a FIT route's own self-reported session totals (distance,
+    // duration, ascent, descent) against values recomputed from its raw
+    // track — a mismatch is a firmware self-reporting bug by definition,
+    // not a GPS-accuracy question (the device is being checked against
+    // itself). When absolute_pressure is present, also derives an
+    // independent barometric elevation-gain estimate (smoothed with the
+    // same deadband as calculateElevationStats) and compares it against the
+    // device's own reported ascent.
+    calculateSessionCheck(route) {
+        if (!route.sessionSummary) return null;
+
+        const recomputedDistanceKm = route.stats?.distance ?? null;
+        const recomputedDurationSeconds = route.stats?.duration ?? null;
+        const recomputedAscent = route.stats?.elevationGain ?? null;
+        const recomputedDescent = route.stats?.elevationLoss ?? null;
+
+        const diff = (reported, recomputed) =>
+            (reported !== null && reported !== undefined && recomputed !== null && recomputed !== undefined)
+                ? reported - recomputed : null;
+
+        const result = {
+            distanceKm: { reported: route.sessionSummary.totalDistanceKm, recomputed: recomputedDistanceKm,
+                diff: diff(route.sessionSummary.totalDistanceKm, recomputedDistanceKm) },
+            durationSeconds: { reported: route.sessionSummary.totalElapsedSeconds, recomputed: recomputedDurationSeconds,
+                diff: diff(route.sessionSummary.totalElapsedSeconds, recomputedDurationSeconds) },
+            ascent: { reported: route.sessionSummary.totalAscent, recomputed: recomputedAscent,
+                diff: diff(route.sessionSummary.totalAscent, recomputedAscent) },
+            descent: { reported: route.sessionSummary.totalDescent, recomputed: recomputedDescent,
+                diff: diff(route.sessionSummary.totalDescent, recomputedDescent) },
+            baroAscent: null
+        };
+
+        const pressures = route.absolutePressures || [];
+        if (pressures.some(p => p !== null && p !== undefined)) {
+            const pressureElevations = pressures.map(p => this.pressureToElevation(p));
+            const baroChange = this.calculateElevationChange(pressureElevations, 0, pressureElevations.length - 1);
+            result.baroAscent = {
+                reported: route.sessionSummary.totalAscent,
+                recomputed: baroChange.gain,
+                diff: diff(route.sessionSummary.totalAscent, baroChange.gain)
+            };
+        }
+
+        return result;
+    },
+
     formatDistance(km) {
         return km >= 1 ? `${km.toFixed(2)} km` : `${(km * 1000).toFixed(0)} m`;
     },
@@ -140,6 +223,25 @@ export const Utils = {
 
     formatCadence(spm) {
         return (!spm || isNaN(spm)) ? 'N/A' : `${Math.round(spm)} spm`;
+    },
+
+    // Running dynamics formatters. FIT reports vertical oscillation and step
+    // length in mm and ground contact time in ms — cm is the conventional
+    // display unit for the first two (matches Garmin Connect).
+    formatVerticalOscillation(mm) {
+        return (mm === null || mm === undefined || isNaN(mm)) ? 'N/A' : `${(mm / 10).toFixed(1)} cm`;
+    },
+
+    formatGroundContactTime(ms) {
+        return (ms === null || ms === undefined || isNaN(ms)) ? 'N/A' : `${Math.round(ms)} ms`;
+    },
+
+    formatStepLength(mm) {
+        return (mm === null || mm === undefined || isNaN(mm)) ? 'N/A' : `${(mm / 10).toFixed(1)} cm`;
+    },
+
+    formatPercent(value, decimals = 1) {
+        return (value === null || value === undefined || isNaN(value)) ? 'N/A' : `${value.toFixed(decimals)}%`;
     },
 
     smoothData(data, windowSize = 20) {
@@ -572,6 +674,217 @@ export const Utils = {
         }
 
         return { referenceRoute, drifts, startTime, endTime };
+    },
+
+    // Sensor Validation utilities (HR accuracy, cadence-lock detection).
+    //
+    // Elapsed-time -> value map for an arbitrary per-point metric array
+    // (heart rate, cadence, ...) — the same shape/pattern as
+    // buildTimeDistanceMap, generalized beyond just cumulative distance.
+    buildTimeValueMap(route, valueArray, timeOffsetSeconds = 0) {
+        if (!route.timestamps || route.timestamps.length === 0 || !valueArray) return null;
+
+        const startTime = route.timestamps[0]?.getTime();
+        if (!startTime) return null;
+
+        const map = { times: [], values: [] };
+        for (let i = 0; i < route.timestamps.length; i++) {
+            const value = valueArray[i];
+            if (route.timestamps[i] && value !== null && value !== undefined && !isNaN(value)) {
+                const elapsedTime = (route.timestamps[i].getTime() - startTime) / 1000;
+                map.times.push(elapsedTime + timeOffsetSeconds);
+                map.values.push(value);
+            }
+        }
+
+        return map.times.length > 1 ? map : null;
+    },
+
+    getValueAtTime(map, targetTime) {
+        if (!map || map.times.length < 2) return null;
+        if (targetTime < map.times[0] || targetTime > map.times[map.times.length - 1]) return null;
+
+        let low = 0;
+        let high = map.times.length - 1;
+        while (low < high - 1) {
+            const mid = Math.floor((low + high) / 2);
+            if (map.times[mid] <= targetTime) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        const t1 = map.times[low];
+        const t2 = map.times[high];
+        const v1 = map.values[low];
+        const v2 = map.values[high];
+        if (t2 === t1) return v1;
+
+        const ratio = (targetTime - t1) / (t2 - t1);
+        return v1 + ratio * (v2 - v1);
+    },
+
+    // Bland-Altman-style heart rate comparison: mean absolute error and bias
+    // between testRoute's HR and referenceRoute's HR (e.g. wrist optical vs
+    // a chest strap), sampled at matched elapsed time. timeOffsetSeconds (from
+    // Auto-Align) is applied the same way calculateTimeGaps applies it.
+    calculateHrComparison(referenceRoute, testRoute, timeOffsets = {}, sampleIntervalSeconds = 5) {
+        const refMap = this.buildTimeValueMap(referenceRoute, referenceRoute.heartRates);
+        if (!refMap) return null;
+
+        const testOffset = timeOffsets[testRoute.filename] || 0;
+        const testMap = this.buildTimeValueMap(testRoute, testRoute.heartRates, testOffset);
+        if (!testMap) return null;
+
+        const minTime = Math.max(refMap.times[0], testMap.times[0]);
+        const maxTime = Math.min(refMap.times[refMap.times.length - 1], testMap.times[testMap.times.length - 1]);
+        if (minTime >= maxTime) return null;
+
+        const diffs = [];
+        for (let t = minTime; t <= maxTime; t += sampleIntervalSeconds) {
+            const refHR = this.getValueAtTime(refMap, t);
+            const testHR = this.getValueAtTime(testMap, t);
+            if (refHR !== null && testHR !== null) {
+                diffs.push(testHR - refHR); // Positive = test reads high, negative = test reads low
+            }
+        }
+        if (diffs.length === 0) return null;
+
+        return {
+            bias: diffs.reduce((a, b) => a + b, 0) / diffs.length,
+            meanAbsoluteError: diffs.reduce((a, b) => a + Math.abs(b), 0) / diffs.length,
+            sampleCount: diffs.length
+        };
+    },
+
+    // Flags stretches where a route's own heart rate suspiciously tracks its
+    // own cadence instead of pulse — a classic optical HR failure mode, since
+    // wrist-motion cadence and running HR occupy overlapping numeric ranges
+    // (roughly 150-190 for both). Requires minConsecutivePoints in a row
+    // within toleranceBpm of each other to avoid flagging coincidental
+    // single-point crossings.
+    detectCadenceLock(route, toleranceBpm = 5, minConsecutivePoints = 5) {
+        const hr = route.heartRates || [];
+        const cadence = route.cadences || [];
+        const timestamps = route.timestamps || [];
+        const flags = [];
+        let runStart = null;
+        let runLength = 0;
+
+        const closeRun = (endIndex) => {
+            if (runStart !== null && runLength >= minConsecutivePoints) {
+                flags.push({
+                    startIndex: runStart,
+                    endIndex,
+                    pointCount: runLength,
+                    startTime: timestamps[runStart] || null,
+                    endTime: timestamps[endIndex] || null
+                });
+            }
+            runStart = null;
+            runLength = 0;
+        };
+
+        for (let i = 0; i < hr.length; i++) {
+            const locked = hr[i] !== null && hr[i] !== undefined
+                && cadence[i] !== null && cadence[i] !== undefined
+                && Math.abs(hr[i] - cadence[i]) <= toleranceBpm;
+
+            if (locked) {
+                if (runStart === null) runStart = i;
+                runLength++;
+            } else {
+                closeRun(i - 1);
+            }
+        }
+        closeRun(hr.length - 1);
+
+        return flags;
+    },
+
+    // Recording gaps (time between consecutive points beyond what the file's
+    // own typical sampling rate would predict) and null-value runs per sensor
+    // metric — concrete detail for a bug report ("HR dropped for 40s at
+    // km 3 on the test unit only").
+    calculateDropoutDiagnostics(route, options = {}) {
+        const timestamps = route.timestamps || [];
+
+        // Typical sampling interval: median gap between consecutive valid timestamps.
+        const intervals = [];
+        let lastValidTime = null;
+        for (const t of timestamps) {
+            if (t !== null) {
+                if (lastValidTime !== null) {
+                    intervals.push((t.getTime() - lastValidTime.getTime()) / 1000);
+                }
+                lastValidTime = t;
+            }
+        }
+        const typicalIntervalSeconds = intervals.length > 0 ? this.median(intervals) : null;
+
+        const gapThresholdMultiplier = options.gapThresholdMultiplier ?? 3;
+        const minGapSeconds = options.minGapSeconds ?? 5;
+        const threshold = typicalIntervalSeconds !== null
+            ? Math.max(typicalIntervalSeconds * gapThresholdMultiplier, minGapSeconds)
+            : minGapSeconds;
+
+        const gaps = [];
+        let cumulativeDistanceKm = 0;
+        lastValidTime = null;
+        for (let i = 0; i < timestamps.length; i++) {
+            if (i > 0 && route.coordinates?.[i] && route.coordinates?.[i - 1]) {
+                cumulativeDistanceKm += this.haversineDistance(route.coordinates[i - 1], route.coordinates[i]);
+            }
+            if (timestamps[i] !== null) {
+                if (lastValidTime !== null) {
+                    const gapSeconds = (timestamps[i].getTime() - lastValidTime.getTime()) / 1000;
+                    if (gapSeconds > threshold) {
+                        gaps.push({ gapSeconds, atDistanceKm: cumulativeDistanceKm, endIndex: i });
+                    }
+                }
+                lastValidTime = timestamps[i];
+            }
+        }
+
+        // Null-value runs per metric, ignoring runs shorter than minRunPoints
+        // (a single dropped sample is normal GPS/sensor noise, not a dropout).
+        const minRunPoints = options.minRunPoints ?? 3;
+        const findRuns = (arr) => {
+            const values = arr || [];
+            // A metric with zero valid values anywhere was never recorded by
+            // this device (e.g. no footpod, no power meter) — that's not a
+            // dropout, and flagging it as one would misleadingly suggest the
+            // sensor started reporting and then stopped mid-route.
+            if (!values.some(v => v !== null && v !== undefined)) return [];
+
+            const runs = [];
+            let runStart = null;
+            for (let i = 0; i < values.length; i++) {
+                const isNull = values[i] === null || values[i] === undefined;
+                if (isNull) {
+                    if (runStart === null) runStart = i;
+                } else if (runStart !== null) {
+                    runs.push({ startIndex: runStart, endIndex: i - 1, pointCount: i - runStart });
+                    runStart = null;
+                }
+            }
+            if (runStart !== null) {
+                runs.push({ startIndex: runStart, endIndex: values.length - 1, pointCount: values.length - runStart });
+            }
+            return runs.filter(r => r.pointCount >= minRunPoints);
+        };
+
+        return {
+            typicalIntervalSeconds,
+            gaps,
+            nullRuns: {
+                heartRate: findRuns(route.heartRates),
+                cadence: findRuns(route.cadences),
+                power: findRuns(route.powers),
+                gpsAccuracy: findRuns(route.gpsAccuracies)
+            }
+        };
     },
 
     // Cross-Track Deviation (GPS accuracy testing): perpendicular distance from

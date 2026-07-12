@@ -96,6 +96,13 @@
                     <button class="cmp-btn cmp-btn--analyse comparison-drift-btn" data-metric="drift" title="Whether a device's odometer reads long or short over time vs the reference route. Needs 2+ routes with recorded time" onclick="compareDistanceDrift()">Distance Drift</button>
                     <button class="cmp-btn cmp-btn--analyse comparison-autoalign-btn" data-metric="autoalign" title="Automatically aligns routes for Time Gap/Race/charts and shows the result as a notification — doesn't open a panel. Needs 2+ selected routes" onclick="autoAlign()">Auto-Align</button>
                 </div>
+                <div class="cmp-group" role="group" aria-label="Validate">
+                    <span class="cmp-group-label">Validate</span>
+                    <button class="cmp-btn cmp-btn--analyse comparison-dynamics-btn" data-metric="dynamics" title="Vertical oscillation, ground contact time, vertical ratio, GCT balance, step length. FIT-only. Needs 1+ selected routes" onclick="compareRunningDynamics()">Dynamics</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-sessioncheck-btn" data-metric="sessioncheck" title="Device's own self-reported totals vs recomputed from the track. FIT-only. Needs 1+ selected routes" onclick="compareSessionCheck()">Session Check</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-hrvalidation-btn" data-metric="hrvalidation" title="Heart rate accuracy vs a reference route, plus cadence-lock detection. Needs 2+ routes with heart rate data" onclick="compareHrValidation()">HR / Cadence</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-dropout-btn" data-metric="dropout" title="Recording gaps and sensor null-runs per route. Needs 1+ selected routes" onclick="compareDropout()">Dropout</button>
+                </div>
                 <div class="cmp-group cmp-group--actions">
                     <button class="cmp-btn cmp-btn--primary comparison-race-btn" data-metric="race" title="Needs 2+ routes with recorded time" onclick="startRace()">Race</button>
                     <button class="cmp-btn cmp-btn--ghost comparison-export-btn" onclick="exportComparisonCSV()">Export CSV</button>
@@ -202,7 +209,7 @@
     </div>
 
     <!-- GPS Deviation Modal -->
-    <div id="deviationModal" role="dialog" aria-modal="true">
+    <div id="deviationModal" class="analysis-modal" role="dialog" aria-modal="true">
         <div class="deviation-modal-content">
             <div class="deviation-modal-header">
                 <h2>GPS Deviation</h2>
@@ -210,13 +217,13 @@
             </div>
             <p class="deviation-modal-hint">Perpendicular distance from each route to the reference route (marked REF — the first selected route with recorded time, if any). "Show" colors that route's map line green → red, from on-course up to its own worst 5% of points — the scale is per-route, not a fixed distance.</p>
             <div class="deviation-table-container">
-                <table id="deviationTable"></table>
+                <table id="deviationTable" class="analysis-table"></table>
             </div>
         </div>
     </div>
 
     <!-- Distance Drift Modal -->
-    <div id="distanceDriftModal" role="dialog" aria-modal="true">
+    <div id="distanceDriftModal" class="analysis-modal" role="dialog" aria-modal="true">
         <div class="deviation-modal-content">
             <div class="deviation-modal-header">
                 <h2>Distance Drift</h2>
@@ -224,7 +231,63 @@
             </div>
             <p class="deviation-modal-hint">Cumulative distance difference vs. the reference route (the first selected route, marked REF), sampled at equal elapsed time. A steadily diverging value means a device reads consistently long or short.</p>
             <div class="deviation-table-container">
-                <table id="distanceDriftTable"></table>
+                <table id="distanceDriftTable" class="analysis-table"></table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Running Dynamics Modal -->
+    <div id="runningDynamicsModal" class="analysis-modal" role="dialog" aria-modal="true">
+        <div class="deviation-modal-content">
+            <div class="deviation-modal-header">
+                <h2>Running Dynamics</h2>
+                <button class="modal-close" onclick="closeRunningDynamicsModal()">Close</button>
+            </div>
+            <p class="deviation-modal-hint">Average vertical oscillation, ground contact time, vertical ratio, GCT balance, and step length per route — FIT-only, needs a footpod or the watch's own running-dynamics accelerometer feature enabled. Coverage shows what fraction of points had this data.</p>
+            <div class="deviation-table-container">
+                <table id="runningDynamicsTable" class="analysis-table"></table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Session Self-Check Modal -->
+    <div id="sessionCheckModal" class="analysis-modal" role="dialog" aria-modal="true">
+        <div class="deviation-modal-content">
+            <div class="deviation-modal-header">
+                <h2>Session Self-Check</h2>
+                <button class="modal-close" onclick="closeSessionCheckModal()">Close</button>
+            </div>
+            <p class="deviation-modal-hint">Compares each device's own self-reported distance/time/ascent/descent (from the FIT session summary) against what's recomputed from its raw track. A mismatch is a firmware self-reporting bug by definition. When the file includes raw barometric pressure, also compares the device's reported elevation gain against an independently derived barometric estimate.</p>
+            <div class="deviation-table-container">
+                <table id="sessionCheckTable" class="analysis-table"></table>
+            </div>
+        </div>
+    </div>
+
+    <!-- HR/Cadence Validation Modal -->
+    <div id="hrValidationModal" class="analysis-modal" role="dialog" aria-modal="true">
+        <div class="deviation-modal-content">
+            <div class="deviation-modal-header">
+                <h2>HR / Cadence Validation</h2>
+                <button class="modal-close" onclick="closeHrValidationModal()">Close</button>
+            </div>
+            <p class="deviation-modal-hint">Compares each route's heart rate against the reference route's (marked REF — typically a chest strap): mean absolute error and bias. Also flags stretches where a route's HR tracks its own cadence instead of pulse — a classic optical heart-rate failure mode.</p>
+            <div class="deviation-table-container">
+                <table id="hrValidationTable" class="analysis-table"></table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dropout / Sampling Diagnostics Modal -->
+    <div id="dropoutModal" class="analysis-modal" role="dialog" aria-modal="true">
+        <div class="deviation-modal-content">
+            <div class="deviation-modal-header">
+                <h2>Dropout Diagnostics</h2>
+                <button class="modal-close" onclick="closeDropoutModal()">Close</button>
+            </div>
+            <p class="deviation-modal-hint">Recording gaps (time between consecutive points beyond what the file's own sampling rate would predict) and null-value runs per sensor metric, per route.</p>
+            <div class="deviation-table-container">
+                <table id="dropoutTable" class="analysis-table"></table>
             </div>
         </div>
     </div>

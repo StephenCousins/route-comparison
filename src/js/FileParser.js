@@ -265,6 +265,26 @@ export class FileParser {
         return { manufacturer, productName, firmwareVersion, serialNumber };
     }
 
+    // Build a self-reported totals summary from the FIT session message, used
+    // to cross-check against values recomputed from the raw track — a
+    // discrepancy there is a firmware self-reporting bug by definition.
+    static buildSessionSummary(data) {
+        const session = (data.sessions || [])[0];
+        if (!session) return null;
+
+        const totalDistanceKm = session.total_distance !== undefined && session.total_distance !== null
+            ? session.total_distance / 1000 : null;
+        const totalElapsedSeconds = session.total_elapsed_time ?? session.total_timer_time ?? null;
+        const totalAscent = session.total_ascent ?? null;
+        const totalDescent = session.total_descent ?? null;
+
+        if (totalDistanceKm === null && totalElapsedSeconds === null && totalAscent === null && totalDescent === null) {
+            return null;
+        }
+
+        return { totalDistanceKm, totalElapsedSeconds, totalAscent, totalDescent };
+    }
+
     static async parseFIT(arrayBuffer, color, filename) {
         const FitParser = await loadFitParser();
         return new Promise((resolve, reject) => {
@@ -290,10 +310,13 @@ export class FileParser {
                 }
 
                 const device = this.buildDeviceInfo(data);
+                const sessionSummary = this.buildSessionSummary(data);
 
                 const coordinates = [], elevations = [], timestamps = [];
                 const heartRates = [], cadences = [], powers = [], speeds = [], paces = [];
                 const gpsAccuracies = [];
+                const verticalOscillations = [], groundContactTimes = [], verticalRatios = [];
+                const groundContactBalances = [], stepLengths = [], absolutePressures = [];
 
                 records.forEach(record => {
                     if (record.position_lat !== undefined && record.position_long !== undefined) {
@@ -308,6 +331,12 @@ export class FileParser {
                             cadences.push(record.cadence !== null && record.cadence !== undefined ? record.cadence * 2 : null);
                             powers.push(record.power ?? null);
                             gpsAccuracies.push(record.gps_accuracy ?? null);
+                            verticalOscillations.push(record.vertical_oscillation ?? null);
+                            groundContactTimes.push(record.stance_time ?? null);
+                            verticalRatios.push(record.vertical_ratio ?? null);
+                            groundContactBalances.push(record.stance_time_balance ?? null);
+                            stepLengths.push(record.step_length ?? null);
+                            absolutePressures.push(record.absolute_pressure ?? null);
 
                             let speedKmh = null;
                             if (record.enhanced_speed !== undefined && record.enhanced_speed !== null) {
@@ -339,13 +368,21 @@ export class FileParser {
 
                 resolve(this.createRouteData(filename, color, coordinates, elevations,
                     timestamps, heartRates, cadences, powers, smoothedSpeeds, smoothedPaces,
-                    { gpsAccuracies, device }));
+                    {
+                        gpsAccuracies, device, sessionSummary,
+                        verticalOscillations, groundContactTimes, verticalRatios,
+                        groundContactBalances, stepLengths, absolutePressures
+                    }));
             });
         });
     }
 
     static createRouteData(filename, color, coordinates, elevations, timestamps,
-        heartRates, cadences, powers, speeds, paces, { gpsAccuracies = [], device = null } = {}) {
+        heartRates, cadences, powers, speeds, paces, {
+            gpsAccuracies = [], device = null, sessionSummary = null,
+            verticalOscillations = [], groundContactTimes = [], verticalRatios = [],
+            groundContactBalances = [], stepLengths = [], absolutePressures = []
+        } = {}) {
         const distance = Utils.calculateDistance(coordinates);
         const elevStats = Utils.calculateElevationStats(elevations);
 
@@ -365,6 +402,13 @@ export class FileParser {
             powers,
             gpsAccuracies,
             device,
+            sessionSummary,
+            verticalOscillations,
+            groundContactTimes,
+            verticalRatios,
+            groundContactBalances,
+            stepLengths,
+            absolutePressures,
             speeds,
             paces,
             timestamps,

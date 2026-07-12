@@ -57,7 +57,11 @@ class RouteOverlayApp {
     // Every modal can now be closed with Escape or a backdrop click, reusing its
     // own .modal-close handler so any per-modal cleanup still runs.
     setupModalDismissal() {
-        const modalIds = ['elevationModal', 'insightsModal', 'splitsModal', 'segmentModal', 'sessionsModal', 'deviationModal', 'distanceDriftModal'];
+        const modalIds = [
+            'elevationModal', 'insightsModal', 'splitsModal', 'segmentModal', 'sessionsModal',
+            'deviationModal', 'distanceDriftModal', 'runningDynamicsModal', 'sessionCheckModal',
+            'hrValidationModal', 'dropoutModal'
+        ];
         const closeModal = (m) => {
             const btn = m.querySelector('.modal-close');
             if (btn) btn.click(); else m.classList.remove('show');
@@ -239,6 +243,13 @@ class RouteOverlayApp {
             cadences: route.cadences,
             powers: route.powers,
             gpsAccuracies: route.gpsAccuracies,
+            sessionSummary: route.sessionSummary,
+            verticalOscillations: route.verticalOscillations,
+            groundContactTimes: route.groundContactTimes,
+            verticalRatios: route.verticalRatios,
+            groundContactBalances: route.groundContactBalances,
+            stepLengths: route.stepLengths,
+            absolutePressures: route.absolutePressures,
             // Serial number is truncated before it ever leaves the browser —
             // saved sessions may end up in reports shared outside the account.
             device: route.device ? {
@@ -306,6 +317,13 @@ class RouteOverlayApp {
                 powers: routeData.powers || [],
                 gpsAccuracies: routeData.gpsAccuracies || [],
                 device: routeData.device || null,
+                sessionSummary: routeData.sessionSummary || null,
+                verticalOscillations: routeData.verticalOscillations || [],
+                groundContactTimes: routeData.groundContactTimes || [],
+                verticalRatios: routeData.verticalRatios || [],
+                groundContactBalances: routeData.groundContactBalances || [],
+                stepLengths: routeData.stepLengths || [],
+                absolutePressures: routeData.absolutePressures || [],
                 speeds: routeData.speeds || [],
                 paces: routeData.paces || [],
                 timestamps: (routeData.timestamps || []).map(t => this.parseFirestoreTimestamp(t)),
@@ -1222,6 +1240,257 @@ class RouteOverlayApp {
         document.getElementById('distanceDriftModal').classList.remove('show');
     }
 
+    // Unlike Deviation/Distance Drift, this isn't a "vs reference" comparison —
+    // each selected route just shows its own averages side by side, so any
+    // route (FIT-only) can appear as a peer row.
+    compareRunningDynamics() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 1) {
+            showToast('Please select at least 1 route to view running dynamics');
+            return;
+        }
+
+        const routesWithData = selectedRoutes.filter(r =>
+            (r.verticalOscillations || []).some(v => v !== null)
+        );
+
+        if (routesWithData.length === 0) {
+            showToast('None of the selected routes have running dynamics data (FIT files only, needs a footpod or the watch\'s own accelerometer feature).');
+            return;
+        }
+
+        this.renderRunningDynamicsModal(routesWithData);
+    }
+
+    renderRunningDynamicsModal(routes) {
+        const modal = document.getElementById('runningDynamicsModal');
+        const table = document.getElementById('runningDynamicsTable');
+
+        const headerRow = '<tr><th>Route</th><th>Vert. Osc.</th><th>GCT</th><th>GCT Balance</th><th>Vert. Ratio</th><th>Step Length</th><th>Coverage</th></tr>';
+
+        const routeLabel = (route) => `
+            <div class="route-header-content">
+                <div class="route-color-dot" style="background: ${route.color}"></div>
+                <span>${route.displayName}</span>
+            </div>`;
+
+        const bodyRows = routes.map(route => {
+            const summary = Utils.calculateRunningDynamicsSummary(route);
+            const coveragePct = Math.round(summary.coverage * 100);
+            return `<tr>
+                <td>${routeLabel(route)}</td>
+                <td>${Utils.formatVerticalOscillation(summary.verticalOscillation)}</td>
+                <td>${Utils.formatGroundContactTime(summary.groundContactTime)}</td>
+                <td>${Utils.formatPercent(summary.groundContactBalance)}</td>
+                <td>${Utils.formatPercent(summary.verticalRatio)}</td>
+                <td>${Utils.formatStepLength(summary.stepLength)}</td>
+                <td>${coveragePct}%</td>
+            </tr>`;
+        }).join('');
+
+        table.innerHTML = `<thead>${headerRow}</thead><tbody>${bodyRows}</tbody>`;
+        modal.classList.add('show');
+    }
+
+    closeRunningDynamicsModal() {
+        document.getElementById('runningDynamicsModal').classList.remove('show');
+    }
+
+    // Per-route self-consistency check, not a "vs reference" comparison —
+    // each FIT route checks its own device-reported totals against what's
+    // recomputed from its own track.
+    compareSessionCheck() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 1) {
+            showToast('Please select at least 1 route to run a session self-check');
+            return;
+        }
+
+        const routesWithSession = selectedRoutes.filter(r => r.sessionSummary);
+
+        if (routesWithSession.length === 0) {
+            showToast('None of the selected routes have a FIT session summary to check against (GPX files don\'t have one).');
+            return;
+        }
+
+        this.renderSessionCheckModal(routesWithSession);
+    }
+
+    renderSessionCheckModal(routes) {
+        const modal = document.getElementById('sessionCheckModal');
+        const table = document.getElementById('sessionCheckTable');
+
+        const hasAnyBaro = routes.some(r => Utils.calculateSessionCheck(r)?.baroAscent);
+        const headerRow = `<tr><th>Route</th><th>Distance</th><th>Duration</th><th>Ascent</th><th>Descent</th>${hasAnyBaro ? '<th>Baro Ascent</th>' : ''}</tr>`;
+
+        const routeLabel = (route) => `
+            <div class="route-header-content">
+                <div class="route-color-dot" style="background: ${route.color}"></div>
+                <span>${route.displayName}</span>
+            </div>`;
+
+        const diffClass = (value) => value > 0 ? 'value-positive' : value < 0 ? 'value-negative' : '';
+        const diffCell = (diffEntry, formatter) => {
+            if (!diffEntry || diffEntry.diff === null) return '<td>N/A</td>';
+            return `<td class="${diffClass(diffEntry.diff)}">${formatter(diffEntry.diff)}</td>`;
+        };
+
+        const bodyRows = routes.map(route => {
+            const check = Utils.calculateSessionCheck(route);
+            if (!check) return '';
+
+            const distanceDiffM = check.distanceKm.diff !== null ? check.distanceKm.diff * 1000 : null;
+
+            return `<tr>
+                <td>${routeLabel(route)}</td>
+                <td class="${diffClass(distanceDiffM)}">${distanceDiffM !== null ? this.formatDiff(distanceDiffM, 'elev') : 'N/A'}</td>
+                ${diffCell(check.durationSeconds, v => this.formatDiff(v, 'time'))}
+                ${diffCell(check.ascent, v => this.formatDiff(v, 'elev'))}
+                ${diffCell(check.descent, v => this.formatDiff(v, 'elev'))}
+                ${hasAnyBaro ? diffCell(check.baroAscent, v => this.formatDiff(v, 'elev')) : ''}
+            </tr>`;
+        }).join('');
+
+        table.innerHTML = `<thead>${headerRow}</thead><tbody>${bodyRows}</tbody>`;
+        modal.classList.add('show');
+    }
+
+    closeSessionCheckModal() {
+        document.getElementById('sessionCheckModal').classList.remove('show');
+    }
+
+    compareHrValidation() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+        const routesWithHR = selectedRoutes.filter(r => r.heartRates && r.heartRates.some(h => h !== null));
+
+        if (routesWithHR.length < 2) {
+            showToast('HR validation requires at least 2 routes with heart rate data.');
+            return;
+        }
+
+        // First selected route with HR data is the reference — matches the
+        // convention pickReferenceRoute uses for timestamp-dependent features.
+        const referenceRoute = routesWithHR[0];
+        const comparisonRoutes = routesWithHR.slice(1);
+
+        const results = comparisonRoutes.map(route => ({
+            route,
+            hrComparison: Utils.calculateHrComparison(referenceRoute, route, this.routeTimeOffsets),
+            cadenceLockFlags: Utils.detectCadenceLock(route)
+        }));
+
+        this.renderHrValidationModal(referenceRoute, results);
+    }
+
+    renderHrValidationModal(referenceRoute, results) {
+        const modal = document.getElementById('hrValidationModal');
+        const table = document.getElementById('hrValidationTable');
+
+        const headerRow = '<tr><th>Route</th><th>Mean Abs Error</th><th>Bias</th><th>Cadence-Lock</th></tr>';
+
+        const routeLabel = (route, isReference) => `
+            <div class="route-header-content">
+                <div class="route-color-dot" style="background: ${route.color}"></div>
+                <span>${route.displayName}</span>
+                ${isReference ? '<span class="reference-badge" title="Reference route — HR is compared against this one">REF</span>' : ''}
+            </div>`;
+
+        const cadenceLockSummary = (flags) => {
+            if (flags.length === 0) return 'None';
+            const totalPoints = flags.reduce((sum, f) => sum + f.pointCount, 0);
+            return `${flags.length} section${flags.length > 1 ? 's' : ''} (${totalPoints} pts)`;
+        };
+
+        const refFlags = Utils.detectCadenceLock(referenceRoute);
+        const refRow = `<tr>
+            <td>${routeLabel(referenceRoute, true)}</td>
+            <td>—</td>
+            <td>—</td>
+            <td class="${refFlags.length > 0 ? 'value-negative' : ''}">${cadenceLockSummary(refFlags)}</td>
+        </tr>`;
+
+        const bodyRows = results.map(({ route, hrComparison, cadenceLockFlags }) => {
+            // Not Utils.formatHeartRate — it treats 0 as falsy and would show
+            // "N/A" for a perfect (zero-error) match instead of "0 bpm".
+            const mae = hrComparison ? `${Math.round(hrComparison.meanAbsoluteError)} bpm` : 'N/A';
+            const bias = hrComparison
+                ? `${hrComparison.bias >= 0 ? '+' : ''}${hrComparison.bias.toFixed(1)} bpm`
+                : 'N/A';
+            return `<tr>
+                <td>${routeLabel(route, false)}</td>
+                <td>${mae}</td>
+                <td>${bias}</td>
+                <td class="${cadenceLockFlags.length > 0 ? 'value-negative' : ''}">${cadenceLockSummary(cadenceLockFlags)}</td>
+            </tr>`;
+        }).join('');
+
+        table.innerHTML = `<thead>${headerRow}</thead><tbody>${refRow}${bodyRows}</tbody>`;
+        modal.classList.add('show');
+    }
+
+    closeHrValidationModal() {
+        document.getElementById('hrValidationModal').classList.remove('show');
+    }
+
+    compareDropout() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 1) {
+            showToast('Please select at least 1 route to run dropout diagnostics');
+            return;
+        }
+
+        this.renderDropoutModal(selectedRoutes);
+    }
+
+    renderDropoutModal(routes) {
+        const modal = document.getElementById('dropoutModal');
+        const table = document.getElementById('dropoutTable');
+
+        const headerRow = '<tr><th>Route</th><th>Typical Interval</th><th>Recording Gaps</th><th>Sensor Dropouts</th></tr>';
+
+        const routeLabel = (route) => `
+            <div class="route-header-content">
+                <div class="route-color-dot" style="background: ${route.color}"></div>
+                <span>${route.displayName}</span>
+            </div>`;
+
+        const METRIC_LABELS = { heartRate: 'HR', cadence: 'Cadence', power: 'Power', gpsAccuracy: 'GPS Acc.' };
+
+        const bodyRows = routes.map(route => {
+            const diag = Utils.calculateDropoutDiagnostics(route);
+
+            const intervalText = diag.typicalIntervalSeconds !== null
+                ? `${diag.typicalIntervalSeconds.toFixed(1)}s`
+                : 'N/A';
+
+            const gapsText = diag.gaps.length === 0
+                ? 'None'
+                : `${diag.gaps.length} gap${diag.gaps.length > 1 ? 's' : ''}, ${Math.round(diag.gaps.reduce((s, g) => s + g.gapSeconds, 0))}s total`;
+
+            const dropoutParts = Object.entries(diag.nullRuns)
+                .filter(([, runs]) => runs.length > 0)
+                .map(([metric, runs]) => `${METRIC_LABELS[metric] || metric} ×${runs.length}`);
+            const dropoutText = dropoutParts.length > 0 ? dropoutParts.join(', ') : 'None';
+
+            return `<tr>
+                <td>${routeLabel(route)}</td>
+                <td>${intervalText}</td>
+                <td class="${diag.gaps.length > 0 ? 'value-negative' : ''}">${gapsText}</td>
+                <td class="${dropoutParts.length > 0 ? 'value-negative' : ''}">${dropoutText}</td>
+            </tr>`;
+        }).join('');
+
+        table.innerHTML = `<thead>${headerRow}</thead><tbody>${bodyRows}</tbody>`;
+        modal.classList.add('show');
+    }
+
+    closeDropoutModal() {
+        document.getElementById('dropoutModal').classList.remove('show');
+    }
+
     compareSegment() {
         const selectedRoutes = this.routes.filter(r => r.selected);
 
@@ -1479,6 +1748,30 @@ class RouteOverlayApp {
             autoAlignBtn.disabled = selectedRoutes.length < 2;
         }
 
+        // Dynamics/Session Check/Dropout are per-route summaries, not a
+        // "vs reference" comparison — any 1+ selected routes works (in
+        // practice the panel itself only shows at 2+ selected anyway).
+        const dynamicsBtn = document.querySelector('.comparison-dynamics-btn');
+        if (dynamicsBtn) {
+            dynamicsBtn.disabled = selectedRoutes.length < 1;
+        }
+
+        const sessionCheckBtn = document.querySelector('.comparison-sessioncheck-btn');
+        if (sessionCheckBtn) {
+            sessionCheckBtn.disabled = selectedRoutes.length < 1;
+        }
+
+        const dropoutBtn = document.querySelector('.comparison-dropout-btn');
+        if (dropoutBtn) {
+            dropoutBtn.disabled = selectedRoutes.length < 1;
+        }
+
+        const routesWithHeartRate = selectedRoutes.filter(r => r.heartRates && r.heartRates.some(h => h !== null));
+        const hrValidationBtn = document.querySelector('.comparison-hrvalidation-btn');
+        if (hrValidationBtn) {
+            hrValidationBtn.disabled = routesWithHeartRate.length < 2;
+        }
+
         // Auto-open unless the user has explicitly dismissed the panel.
         panel.classList.toggle('show', !this.comparisonDismissed);
 
@@ -1635,6 +1928,38 @@ window.autoAlign = function() {
 
 window.compareDistanceDrift = function() {
     if (app) app.compareDistanceDrift();
+};
+
+window.compareRunningDynamics = function() {
+    if (app) app.compareRunningDynamics();
+};
+
+window.closeRunningDynamicsModal = function() {
+    if (app) app.closeRunningDynamicsModal();
+};
+
+window.compareSessionCheck = function() {
+    if (app) app.compareSessionCheck();
+};
+
+window.closeSessionCheckModal = function() {
+    if (app) app.closeSessionCheckModal();
+};
+
+window.compareHrValidation = function() {
+    if (app) app.compareHrValidation();
+};
+
+window.closeHrValidationModal = function() {
+    if (app) app.closeHrValidationModal();
+};
+
+window.compareDropout = function() {
+    if (app) app.compareDropout();
+};
+
+window.closeDropoutModal = function() {
+    if (app) app.closeDropoutModal();
 };
 
 window.closeDistanceDriftModal = function() {
