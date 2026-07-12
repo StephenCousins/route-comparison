@@ -12,6 +12,8 @@ export class Route {
         this.heartRates = data.heartRates || [];
         this.cadences = data.cadences || [];
         this.powers = data.powers || [];
+        this.gpsAccuracies = data.gpsAccuracies || [];
+        this.device = data.device || null;
         this.speeds = data.speeds || [];
         this.paces = data.paces || [];
         this.timestamps = data.timestamps || [];
@@ -28,9 +30,12 @@ export class Route {
         // Animation state
         this.animationState = null;
 
-        // Heatmap state
-        this.heatmapMode = false;
-        this.heatmapPolylines = [];
+        // Overlay state — pace heatmap and GPS-deviation heatmap are mutually
+        // exclusive alternate renderings of this route, drawn as many small
+        // colored polylines instead of one flat-color polyline.
+        this.overlayMode = null; // null | 'pace' | 'deviation'
+        this.overlayPolylines = [];
+        this.deviationResult = null; // cached Utils.calculateCrossTrackDeviation() output
     }
 
     createMapObjects(map, index, handlers) {
@@ -72,8 +77,8 @@ export class Route {
 
     setVisible(visible, map) {
         this.visible = visible;
-        if (this.heatmapMode) {
-            this.heatmapPolylines.forEach(p => p.setMap(visible ? map : null));
+        if (this.overlayMode) {
+            this.overlayPolylines.forEach(p => p.setMap(visible ? map : null));
             this.polyline.setMap(null);
         } else {
             this.polyline.setMap(visible ? map : null);
@@ -83,8 +88,8 @@ export class Route {
 
     highlight(highlight) {
         const weight = highlight ? 8 : 5;
-        if (this.heatmapMode) {
-            this.heatmapPolylines.forEach(p => p.setOptions({ strokeWeight: weight }));
+        if (this.overlayMode) {
+            this.overlayPolylines.forEach(p => p.setOptions({ strokeWeight: weight }));
         } else {
             this.polyline.setOptions({ strokeWeight: weight, strokeOpacity: 1.0 });
         }
@@ -133,10 +138,11 @@ export class Route {
         };
     }
 
-    // Heatmap methods
-    createHeatmapPolylines(map) {
-        // Clear existing heatmap polylines
-        this.clearHeatmapPolylines();
+    // Overlay methods — decimate to ~500 segments and color each one, replacing
+    // the single flat-color polyline. Pace and deviation overlays share this
+    // shape; only the per-segment color source differs.
+    createPaceOverlay(map) {
+        this.clearOverlayPolylines();
 
         // Need pace data
         if (!this.paces || this.paces.length < 2) {
@@ -180,36 +186,93 @@ export class Route {
                 map: map
             });
 
-            this.heatmapPolylines.push(segment);
+            this.overlayPolylines.push(segment);
+        }
+
+        return true;
+    }
+
+    // perPointDeviations/maxDeviation come from Utils.calculateCrossTrackDeviation().
+    createDeviationOverlay(map, perPointDeviations, maxDeviation) {
+        this.clearOverlayPolylines();
+
+        if (!perPointDeviations || perPointDeviations.length < 2) {
+            return false;
+        }
+
+        const step = Math.max(1, Math.floor(this.coordinates.length / 500));
+
+        for (let i = 0; i < this.coordinates.length - step; i += step) {
+            const endIdx = Math.min(i + step, this.coordinates.length - 1);
+
+            let sum = 0;
+            let count = 0;
+            for (let j = i; j <= endIdx; j++) {
+                if (perPointDeviations[j] !== null && perPointDeviations[j] !== undefined) {
+                    sum += perPointDeviations[j];
+                    count++;
+                }
+            }
+            const avgDeviation = count > 0 ? sum / count : null;
+
+            const color = Utils.getDeviationColor(avgDeviation, maxDeviation);
+
+            const segment = new google.maps.Polyline({
+                path: [this.coordinates[i], this.coordinates[endIdx]],
+                geodesic: true,
+                strokeColor: color,
+                strokeOpacity: 1.0,
+                strokeWeight: 5,
+                map: map
+            });
+
+            this.overlayPolylines.push(segment);
         }
 
         return true;
     }
 
     toggleHeatmap(map) {
-        if (this.heatmapMode) {
-            // Turn off heatmap
-            this.clearHeatmapPolylines();
-            this.heatmapMode = false;
+        if (this.overlayMode === 'pace') {
+            this.clearOverlayPolylines();
+            this.overlayMode = null;
             if (this.visible) {
                 this.polyline.setMap(map);
             }
         } else {
-            // Turn on heatmap
-            const success = this.createHeatmapPolylines(map);
+            const success = this.createPaceOverlay(map);
             if (success) {
-                this.heatmapMode = true;
+                this.overlayMode = 'pace';
                 this.polyline.setMap(null);
             }
         }
-        return this.heatmapMode;
+        return this.overlayMode === 'pace';
     }
 
-    clearHeatmapPolylines() {
-        this.heatmapPolylines.forEach(p => {
+    // result is the object returned by Utils.calculateCrossTrackDeviation().
+    toggleDeviationOverlay(map, result) {
+        if (this.overlayMode === 'deviation') {
+            this.clearOverlayPolylines();
+            this.overlayMode = null;
+            if (this.visible) {
+                this.polyline.setMap(map);
+            }
+        } else {
+            const maxDeviation = result.stats.p95 || result.stats.max;
+            const success = this.createDeviationOverlay(map, result.perPointDeviations, maxDeviation);
+            if (success) {
+                this.overlayMode = 'deviation';
+                this.polyline.setMap(null);
+            }
+        }
+        return this.overlayMode === 'deviation';
+    }
+
+    clearOverlayPolylines() {
+        this.overlayPolylines.forEach(p => {
             p.setMap(null);
         });
-        this.heatmapPolylines = [];
+        this.overlayPolylines = [];
     }
 
     hasPaceData() {
@@ -230,8 +293,8 @@ export class Route {
             this.animationMarker.setMap(null);
             this.animationMarker = null;
         }
-        this.clearHeatmapPolylines();
-        this.heatmapMode = false;
+        this.clearOverlayPolylines();
+        this.overlayMode = null;
         this.animationState = null;
     }
 }

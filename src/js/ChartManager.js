@@ -14,6 +14,7 @@ export class ChartManager {
         this.dragMode = false;
         this.selectedRouteForDrag = null;
         this.routeOffsets = {};
+        this.initialOffsets = {}; // auto-align baseline that "Reset Offsets" returns to
 
         this.isDragging = false;
         this.dragStartX = null;
@@ -63,10 +64,16 @@ export class ChartManager {
         this.canvas.addEventListener('mouseenter', () => this.handleMouseEnter());
     }
 
-    show(routes, metricType, yAxisLabel, formatValue) {
+    // initialOffsets (km, keyed by route.filename) seeds the chart's distance
+    // alignment from an auto-align result — manual drag-to-align still works
+    // exactly as before, it just starts from this baseline instead of 0.
+    show(routes, metricType, yAxisLabel, formatValue, initialOffsets = {}) {
         document.getElementById('modalTitle').textContent =
             `${yAxisLabel.split('(')[0].trim()} ${routes.length > 1 ? `Comparison (${routes.length} routes)` : `Profile: ${routes[0].displayName}`}`;
         this.modal.classList.add('show');
+        this.initialOffsets = { ...initialOffsets };
+        this.routeOffsets = { ...initialOffsets };
+        document.getElementById('resetOffsetsBtn').disabled = Object.keys(this.routeOffsets).length === 0;
         this.drawChart(routes, metricType, yAxisLabel, formatValue);
     }
 
@@ -77,6 +84,7 @@ export class ChartManager {
         this.dragMode = false;
         this.selectedRouteForDrag = null;
         this.routeOffsets = {};
+        this.initialOffsets = {};
         this.isDragging = false;
         this.eventHandler.resetSelection();
         this.eventHandler.originalImage = null;
@@ -125,9 +133,11 @@ export class ChartManager {
         }
     }
 
+    // Returns to the auto-align baseline (if any), not necessarily zero — a
+    // "Reset Offsets" that discarded a computed alignment would be surprising.
     resetOffsets() {
-        this.routeOffsets = {};
-        document.getElementById('resetOffsetsBtn').disabled = true;
+        this.routeOffsets = { ...this.initialOffsets };
+        document.getElementById('resetOffsetsBtn').disabled = Object.keys(this.routeOffsets).length === 0;
         if (this.currentData) {
             this.drawChart(
                 this.currentData.routes,
@@ -250,6 +260,7 @@ export class ChartManager {
                 case 'heartrate': metricData = route.heartRates; break;
                 case 'cadence': metricData = route.cadences; break;
                 case 'power': metricData = route.powers; break;
+                case 'gpsaccuracy': metricData = route.gpsAccuracies; break;
             }
 
             const totalDist = distances[distances.length - 1];
@@ -410,9 +421,9 @@ export class ChartManager {
         this.eventHandler.saveCanvasState();
     }
 
-    showTimeGapChart(timeGapData) {
+    showTimeGapChart(timeGapData, note = '') {
         document.getElementById('modalTitle').textContent =
-            `Time Gap Analysis (Reference: ${timeGapData.referenceRoute.displayName})`;
+            `Time Gap Analysis (Reference: ${timeGapData.referenceRoute.displayName})${note}`;
         this.modal.classList.add('show');
         this.drawTimeGapChart(timeGapData);
     }

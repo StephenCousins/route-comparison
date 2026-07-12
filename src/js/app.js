@@ -22,6 +22,13 @@ class RouteOverlayApp {
         this.highlightedRoute = null;
         this.currentUser = null;
 
+        // Auto-Align results, keyed by route.filename. Distance offsets (km)
+        // seed the metric charts' drag-to-align; time offsets (seconds) feed
+        // Time Gap/Race. Neither ever mutates the underlying route data.
+        this.autoAlignOffsets = {};
+        this.routeTimeOffsets = {};
+        this.autoAlignConfidence = {};
+
         this.mapManager = null;
         this.animationManager = null;
         this.chartManager = null;
@@ -50,7 +57,7 @@ class RouteOverlayApp {
     // Every modal can now be closed with Escape or a backdrop click, reusing its
     // own .modal-close handler so any per-modal cleanup still runs.
     setupModalDismissal() {
-        const modalIds = ['elevationModal', 'insightsModal', 'splitsModal', 'segmentModal', 'sessionsModal'];
+        const modalIds = ['elevationModal', 'insightsModal', 'splitsModal', 'segmentModal', 'sessionsModal', 'deviationModal', 'distanceDriftModal'];
         const closeModal = (m) => {
             const btn = m.querySelector('.modal-close');
             if (btn) btn.click(); else m.classList.remove('show');
@@ -220,6 +227,15 @@ class RouteOverlayApp {
             heartRates: route.heartRates,
             cadences: route.cadences,
             powers: route.powers,
+            gpsAccuracies: route.gpsAccuracies,
+            // Serial number is truncated before it ever leaves the browser —
+            // saved sessions may end up in reports shared outside the account.
+            device: route.device ? {
+                manufacturer: route.device.manufacturer,
+                productName: route.device.productName,
+                firmwareVersion: route.device.firmwareVersion,
+                serialNumber: route.device.serialNumber ? String(route.device.serialNumber).slice(-4) : null
+            } : null,
             speeds: route.speeds,
             paces: route.paces,
             timestamps: route.timestamps,
@@ -259,6 +275,12 @@ class RouteOverlayApp {
         this.routes.forEach(route => route.destroy());
         this.routes = [];
         this.colorIndex = 0;
+        // Alignment state is keyed by filename, not route identity — a loaded
+        // session with a same-named file (common with generic FIT filenames)
+        // would otherwise silently inherit an unrelated route's offsets.
+        this.autoAlignOffsets = {};
+        this.routeTimeOffsets = {};
+        this.autoAlignConfidence = {};
 
         // Load routes from session
         for (const routeData of session.routes) {
@@ -271,6 +293,8 @@ class RouteOverlayApp {
                 heartRates: routeData.heartRates || [],
                 cadences: routeData.cadences || [],
                 powers: routeData.powers || [],
+                gpsAccuracies: routeData.gpsAccuracies || [],
+                device: routeData.device || null,
                 speeds: routeData.speeds || [],
                 paces: routeData.paces || [],
                 timestamps: (routeData.timestamps || []).map(t => t ? new Date(t) : null),
@@ -596,6 +620,11 @@ class RouteOverlayApp {
                 <span class="stat-label">Duration:</span>
                 <span class="stat-value">${Utils.formatDuration(route.stats.duration)}</span>
             </div>` : ''}
+            ${route.device ? `
+            <div class="stat-row">
+                <span class="stat-label">Device:</span>
+                <span class="stat-value">${route.device.productName || route.device.manufacturer || 'Unknown'}${route.device.firmwareVersion ? ` · fw ${route.device.firmwareVersion}` : ''}</span>
+            </div>` : ''}
         `;
 
         // Actions
@@ -628,11 +657,18 @@ class RouteOverlayApp {
         };
         actions.appendChild(insightsBtn);
 
-        // Heatmap button (only if pace data available)
+        // Heatmap button (only if pace data available). Also reflects a
+        // deviation heatmap turned on from the Deviation modal — otherwise
+        // there'd be no visible indicator here that an overlay is active once
+        // that modal is closed, and clicking this would silently replace it.
         if (route.hasPaceData()) {
+            const isDeviationActive = route.overlayMode === 'deviation';
             const heatmapBtn = document.createElement('button');
-            heatmapBtn.className = 'heatmap-btn' + (route.heatmapMode ? ' active' : '');
-            heatmapBtn.textContent = route.heatmapMode ? 'Heatmap On' : 'Heatmap';
+            heatmapBtn.className = 'heatmap-btn' + (route.overlayMode ? ' active' : '');
+            heatmapBtn.textContent = isDeviationActive ? 'Deviation On' : (route.overlayMode === 'pace' ? 'Heatmap On' : 'Heatmap');
+            if (isDeviationActive) {
+                heatmapBtn.title = 'A GPS deviation heatmap is active on this route (from the Deviation modal) — click to switch to the pace heatmap';
+            }
             heatmapBtn.onclick = (e) => {
                 e.stopPropagation();
                 route.toggleHeatmap(this.mapManager.map);
@@ -684,6 +720,11 @@ class RouteOverlayApp {
         if (index > -1) {
             route.destroy();
             this.routes.splice(index, 1);
+            // A stale alignment must not silently apply if this filename is
+            // reused by a different route added later.
+            delete this.autoAlignOffsets[route.filename];
+            delete this.routeTimeOffsets[route.filename];
+            delete this.autoAlignConfidence[route.filename];
             this.updateUI();
             this.updateComparison();
             if (this.routes.length > 0) {
@@ -701,7 +742,8 @@ class RouteOverlayApp {
             pace: { data: 'paces', name: 'Pace', label: 'Pace (min/km)', format: v => Utils.formatPace(v) },
             heartrate: { data: 'heartRates', name: 'Heart Rate', label: 'Heart Rate (bpm)', format: v => Math.round(v) + ' bpm' },
             cadence: { data: 'cadences', name: 'Cadence', label: 'Cadence (spm)', format: v => Math.round(v) + ' spm' },
-            power: { data: 'powers', name: 'Power', label: 'Power (W)', format: v => Math.round(v) + 'W' }
+            power: { data: 'powers', name: 'Power', label: 'Power (W)', format: v => Math.round(v) + 'W' },
+            gpsaccuracy: { data: 'gpsAccuracies', name: 'GPS Accuracy', label: 'GPS Accuracy (m)', format: v => Math.round(v) + 'm' }
         };
 
         const config = metricConfig[metricType];
@@ -712,7 +754,7 @@ class RouteOverlayApp {
             return;
         }
 
-        this.chartManager.show(validRoutes, metricType, config.label, config.format);
+        this.chartManager.show(validRoutes, metricType, config.label, config.format, this.autoAlignOffsets);
     }
 
     compareTimeGap() {
@@ -738,16 +780,27 @@ class RouteOverlayApp {
         const referenceRoute = routesWithTimestamps[0];
         const comparisonRoutes = routesWithTimestamps.slice(1);
 
-        // Calculate time gaps
-        const timeGapData = Utils.calculateTimeGaps(referenceRoute, comparisonRoutes);
+        // Calculate time gaps, applying both Auto-Align offsets — distance and
+        // time must be corrected together, or a route that started recording
+        // late shows a bogus constant gap instead of a smaller/zero one.
+        const timeGapData = Utils.calculateTimeGaps(referenceRoute, comparisonRoutes, 0.1, this.routeTimeOffsets, this.autoAlignOffsets);
 
         if (!timeGapData || timeGapData.gaps.length === 0) {
             showToast('Could not calculate time gaps. Routes may not have sufficient timestamp data.');
             return;
         }
 
+        // Warn when a comparison route's confidence says this isn't really a
+        // same-run comparison — a literal head-to-head gap isn't meaningful then.
+        const differentDayRoutes = comparisonRoutes.filter(r =>
+            this.autoAlignConfidence[r.filename] && this.autoAlignConfidence[r.filename].sameDayComparison === false
+        );
+        const note = differentDayRoutes.length > 0
+            ? ' — different-day comparison, gaps reflect pace difference only, not a real head-to-head start'
+            : '';
+
         // Show the time gap chart
-        this.chartManager.showTimeGapChart(timeGapData);
+        this.chartManager.showTimeGapChart(timeGapData, note);
     }
 
     compareSplits() {
@@ -909,6 +962,253 @@ class RouteOverlayApp {
 
     closeSplitsModal() {
         document.getElementById('splitsModal').classList.remove('show');
+    }
+
+    // Every comparison feature (Time Gap, Splits, Segment, Race, Deviation,
+    // Auto-Align, Distance Drift) must agree on the same reference route for a
+    // given selection — otherwise an Auto-Align offset computed against one
+    // route gets silently applied as if it were relative to a different one.
+    // Time-indexed features can only use a route that has timestamps, so if
+    // any selected route has them, the first such route wins; only when NONE
+    // do (Deviation still works without timestamps) does plain selection order apply.
+    pickReferenceRoute(selectedRoutes) {
+        const withTimestamps = selectedRoutes.filter(r =>
+            r.timestamps && r.timestamps.length > 0 && r.timestamps.some(t => t !== null)
+        );
+        return withTimestamps.length > 0 ? withTimestamps[0] : selectedRoutes[0];
+    }
+
+    compareDeviation() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 2) {
+            showToast('Please select at least 2 routes to compare GPS deviation');
+            return;
+        }
+
+        const referenceRoute = this.pickReferenceRoute(selectedRoutes);
+        const comparisonRoutes = selectedRoutes.filter(r => r !== referenceRoute);
+
+        const results = comparisonRoutes
+            .map(route => ({ route, result: Utils.calculateCrossTrackDeviation(route, referenceRoute) }))
+            .filter(({ result }) => result && result.stats.mean !== null);
+
+        if (results.length === 0) {
+            showToast('Could not calculate GPS deviation — routes may not overlap.');
+            return;
+        }
+
+        // Cache each route's deviation result so the map heatmap toggle doesn't recompute it.
+        results.forEach(({ route, result }) => { route.deviationResult = result; });
+
+        this.renderDeviationModal(referenceRoute, results);
+    }
+
+    renderDeviationModal(referenceRoute, results) {
+        const modal = document.getElementById('deviationModal');
+        const table = document.getElementById('deviationTable');
+
+        const headerRow = '<tr><th>Route</th><th>Mean</th><th>Median</th><th>P95</th><th>Max</th><th>Coverage</th><th>Map</th></tr>';
+
+        const routeLabel = (route, isReference) => `
+            <div class="route-header-content">
+                <div class="route-color-dot" style="background: ${route.color}"></div>
+                <span>${route.displayName}</span>
+                ${isReference ? '<span class="reference-badge" title="Reference route — all deviations are measured against this one">REF</span>' : ''}
+                ${!isReference ? this.confidenceBadgeHtml(route) : ''}
+            </div>`;
+
+        const refRow = `<tr><td>${routeLabel(referenceRoute, true)}</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>`;
+
+        const bodyRows = results.map(({ route, result }) => {
+            const total = result.perPointDeviations.length;
+            const confident = result.perPointDeviations.filter(d => d !== null).length;
+            const coveragePct = total > 0 ? Math.round((confident / total) * 100) : 0;
+            const active = route.overlayMode === 'deviation';
+            return `<tr>
+                <td>${routeLabel(route, false)}</td>
+                <td>${Utils.formatDeviation(result.stats.mean)}</td>
+                <td>${Utils.formatDeviation(result.stats.median)}</td>
+                <td>${Utils.formatDeviation(result.stats.p95)}</td>
+                <td>${Utils.formatDeviation(result.stats.max)}</td>
+                <td>${coveragePct}%</td>
+                <td><button class="deviation-heatmap-toggle${active ? ' active' : ''}" data-route-id="${route.id}">${active ? 'Hide' : 'Show'}</button></td>
+            </tr>`;
+        }).join('');
+
+        table.innerHTML = `<thead>${headerRow}</thead><tbody>${refRow}${bodyRows}</tbody>`;
+
+        table.querySelectorAll('.deviation-heatmap-toggle').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const route = this.routes.find(r => String(r.id) === btn.dataset.routeId);
+                if (!route || !route.deviationResult) return;
+                const isOn = route.toggleDeviationOverlay(this.mapManager.map, route.deviationResult);
+                btn.textContent = isOn ? 'Hide' : 'Show';
+                btn.classList.toggle('active', isOn);
+                // The sidebar's own Heatmap button also reflects overlayMode —
+                // refresh it now so it doesn't show stale state until some
+                // unrelated action happens to re-render the sidebar.
+                this.updateUI();
+            });
+        });
+
+        modal.classList.add('show');
+    }
+
+    closeDeviationModal() {
+        document.getElementById('deviationModal').classList.remove('show');
+    }
+
+    confidenceBadgeHtml(route) {
+        const c = this.autoAlignConfidence[route.filename];
+        if (!c) return '';
+        return `<span class="confidence-badge confidence-${c.level}" title="Auto-Align confidence: ${c.level}">${c.level}</span>`;
+    }
+
+    // Computes a distance offset (for the metric charts) and, when the two
+    // routes' start times are close enough to plausibly be the same run, a
+    // time offset (for Time Gap/Race) between the reference route (see
+    // pickReferenceRoute) and every other selected route. Never touches route
+    // data — manual drag-to-align in the chart modal remains a full override.
+    autoAlign() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 2) {
+            showToast('Please select at least 2 routes to auto-align');
+            return;
+        }
+
+        const referenceRoute = this.pickReferenceRoute(selectedRoutes);
+        const testRoutes = selectedRoutes.filter(r => r !== referenceRoute);
+        const summaries = [];
+
+        // Reset before recomputing — otherwise a route auto-aligned against a
+        // DIFFERENT reference in an earlier run (e.g. selection changed and the
+        // reference itself changed) leaves a stale offset that silently applies
+        // wherever autoAlignOffsets/routeTimeOffsets is read, including for the
+        // reference route itself if it was a test route last time.
+        this.autoAlignOffsets = {};
+        this.routeTimeOffsets = {};
+        this.autoAlignConfidence = {};
+
+        testRoutes.forEach(route => {
+            const result = Utils.calculateAutoAlignment(route, referenceRoute);
+
+            if (!result || result.distanceOffsetKm === null) {
+                delete this.autoAlignOffsets[route.filename];
+                delete this.routeTimeOffsets[route.filename];
+                delete this.autoAlignConfidence[route.filename];
+                summaries.push(`${route.displayName}: could not align (no confident overlap with the reference route)`);
+                return;
+            }
+
+            this.autoAlignOffsets[route.filename] = result.distanceOffsetKm;
+            if (result.timeOffsetSeconds !== null) {
+                this.routeTimeOffsets[route.filename] = result.timeOffsetSeconds;
+            } else {
+                delete this.routeTimeOffsets[route.filename];
+            }
+            this.autoAlignConfidence[route.filename] = { ...result.confidence, sameDayComparison: result.sameDayComparison };
+
+            const level = result.confidence.level;
+            const parts = [`${level.charAt(0).toUpperCase()}${level.slice(1)} confidence`];
+            if (result.confidence.avgDeviation !== null) {
+                parts.push(`${Utils.formatDeviation(result.confidence.avgDeviation)} avg deviation`);
+            }
+            if (result.timeOffsetSeconds !== null) {
+                parts.push(`${Utils.formatTimeDelta(result.timeOffsetSeconds)} time offset`);
+            } else {
+                parts.push('different-day comparison — distance aligned only, Race/Time Gap won\'t reflect a real head-to-head');
+            }
+            if (!result.confidence.monotonic) {
+                parts.push('possible loop/out-and-back course — verify alignment manually');
+            }
+            summaries.push(`${route.displayName}: ${parts.join(', ')}`);
+        });
+
+        showToast(summaries.join('\n'), 'success', 7000);
+    }
+
+    compareDistanceDrift() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 2) {
+            showToast('Please select at least 2 routes to compare distance drift');
+            return;
+        }
+
+        const routesWithTimestamps = selectedRoutes.filter(r =>
+            r.timestamps && r.timestamps.length > 0 && r.timestamps.some(t => t !== null)
+        );
+
+        if (routesWithTimestamps.length < 2) {
+            showToast('Distance Drift requires at least 2 routes with timestamp data.');
+            return;
+        }
+
+        const referenceRoute = routesWithTimestamps[0];
+        const comparisonRoutes = routesWithTimestamps.slice(1);
+
+        const driftData = Utils.calculateDistanceDrift(referenceRoute, comparisonRoutes, 10, this.routeTimeOffsets, this.autoAlignOffsets);
+
+        if (!driftData || driftData.drifts.length === 0) {
+            showToast('Could not calculate distance drift. Routes may not have sufficient timestamp data.');
+            return;
+        }
+
+        this.renderDistanceDriftModal(driftData);
+    }
+
+    renderDistanceDriftModal(driftData) {
+        const modal = document.getElementById('distanceDriftModal');
+        const table = document.getElementById('distanceDriftTable');
+
+        const headerRow = '<tr><th>Route</th><th>End Distance</th><th>Drift</th><th>Drift %</th><th>Max Drift</th></tr>';
+
+        const routeLabel = (route, isReference) => `
+            <div class="route-header-content">
+                <div class="route-color-dot" style="background: ${route.color}"></div>
+                <span>${route.displayName}</span>
+                ${isReference ? '<span class="reference-badge" title="Reference route — all drift is measured against this one (the first selected route)">REF</span>' : ''}
+            </div>`;
+
+        const lastPoint = driftData.drifts[driftData.drifts.length - 1];
+        const refRow = `<tr><td>${routeLabel(driftData.referenceRoute, true)}</td><td>${Utils.formatDistance(lastPoint.referenceDistance)}</td><td>—</td><td>—</td><td>—</td></tr>`;
+
+        const compRoutes = new Map();
+        driftData.drifts.forEach(point => point.comparisons.forEach(c => {
+            if (!compRoutes.has(c.route.id)) compRoutes.set(c.route.id, c.route);
+        }));
+
+        const bodyRows = [...compRoutes.values()].map(route => {
+            const last = lastPoint.comparisons.find(c => c.route.id === route.id);
+            if (!last) return '';
+
+            const allDrifts = driftData.drifts
+                .map(p => p.comparisons.find(c => c.route.id === route.id)?.drift)
+                .filter(d => d !== undefined);
+            const maxAbsDrift = Math.max(...allDrifts.map(d => Math.abs(d)));
+            // Snap floating-point noise (e.g. -1e-13 from offset-corrected
+            // subtraction) to exactly 0 so it doesn't render as "-0".
+            const drift = Math.abs(last.drift) < 1e-6 ? 0 : last.drift;
+            const driftPct = lastPoint.referenceDistance > 0 ? (drift / lastPoint.referenceDistance) * 100 : 0;
+            const cls = drift > 0 ? 'drift-positive' : drift < 0 ? 'drift-negative' : '';
+
+            return `<tr>
+                <td>${routeLabel(route, false)}</td>
+                <td>${Utils.formatDistance(last.distance)}</td>
+                <td class="${cls}">${drift > 0 ? '+' : ''}${Utils.formatDistance(drift)}</td>
+                <td class="${cls}">${driftPct > 0 ? '+' : ''}${driftPct.toFixed(1)}%</td>
+                <td>${Utils.formatDistance(maxAbsDrift)}</td>
+            </tr>`;
+        }).join('');
+
+        table.innerHTML = `<thead>${headerRow}</thead><tbody>${refRow}${bodyRows}</tbody>`;
+        modal.classList.add('show');
+    }
+
+    closeDistanceDriftModal() {
+        document.getElementById('distanceDriftModal').classList.remove('show');
     }
 
     compareSegment() {
@@ -1088,7 +1388,7 @@ class RouteOverlayApp {
             return;
         }
 
-        const success = this.animationManager.startRace(selectedRoutes);
+        const success = this.animationManager.startRace(selectedRoutes, this.routeTimeOffsets);
         if (success) {
             // The comparison panel (bottom sheet) would otherwise cover the map
             // and the playback controls during the race.
@@ -1121,7 +1421,8 @@ class RouteOverlayApp {
                 pace: 'paces',
                 heartrate: 'heartRates',
                 cadence: 'cadences',
-                power: 'powers'
+                power: 'powers',
+                gpsaccuracy: 'gpsAccuracies'
             };
             btn.disabled = !hasMetric(propMap[metric]);
         });
@@ -1146,9 +1447,25 @@ class RouteOverlayApp {
             segmentBtn.disabled = routesWithTimestamps.length < 2;
         }
 
+        const driftBtn = document.querySelector('.comparison-drift-btn');
+        if (driftBtn) {
+            driftBtn.disabled = routesWithTimestamps.length < 2;
+        }
+
         const raceBtn = document.querySelector('.comparison-race-btn');
         if (raceBtn) {
             raceBtn.disabled = routesWithTimestamps.length < 2;
+        }
+
+        // Deviation and Auto-Align only need coordinates (no timestamps), unlike the four above.
+        const deviationBtn = document.querySelector('.comparison-deviation-btn');
+        if (deviationBtn) {
+            deviationBtn.disabled = selectedRoutes.length < 2;
+        }
+
+        const autoAlignBtn = document.querySelector('.comparison-autoalign-btn');
+        if (autoAlignBtn) {
+            autoAlignBtn.disabled = selectedRoutes.length < 2;
         }
 
         // Auto-open unless the user has explicitly dismissed the panel.
@@ -1291,6 +1608,26 @@ window.compareSplits = function() {
 
 window.closeSplitsModal = function() {
     if (app) app.closeSplitsModal();
+};
+
+window.compareDeviation = function() {
+    if (app) app.compareDeviation();
+};
+
+window.closeDeviationModal = function() {
+    if (app) app.closeDeviationModal();
+};
+
+window.autoAlign = function() {
+    if (app) app.autoAlign();
+};
+
+window.compareDistanceDrift = function() {
+    if (app) app.compareDistanceDrift();
+};
+
+window.closeDistanceDriftModal = function() {
+    if (app) app.closeDistanceDriftModal();
 };
 
 window.compareSegment = function() {

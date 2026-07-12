@@ -154,6 +154,12 @@ export class FirebaseStorageManager {
                 if (route.powers !== undefined && route.powers !== null) {
                     routeData.powers = roundArray(compressArray(route.powers));
                 }
+                if (route.gpsAccuracies !== undefined && route.gpsAccuracies !== null) {
+                    routeData.gpsAccuracies = roundArray(compressArray(route.gpsAccuracies));
+                }
+                if (route.device) {
+                    routeData.device = route.device;
+                }
 
                 return routeData;
             });

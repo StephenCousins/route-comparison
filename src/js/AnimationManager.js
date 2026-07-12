@@ -122,8 +122,11 @@ export class AnimationManager {
         this.activeAnimations.clear();
     }
 
-    // Race mode - animate multiple routes simultaneously based on elapsed time
-    startRace(routes) {
+    // Race mode - animate multiple routes simultaneously based on elapsed time.
+    // timeOffsets (seconds, keyed by route.filename) come from Auto-Align — a
+    // route that started recording late is offset so it lines up with the
+    // reference route's true elapsed time instead of racing from its own zero.
+    startRace(routes, timeOffsets = {}) {
         // Stop any existing animations
         this.stopAll();
 
@@ -139,6 +142,7 @@ export class AnimationManager {
 
         this.isRacing = true;
         this.racingRoutes = validRoutes;
+        this.raceTimeOffsets = timeOffsets;
 
         // Start all routes at same moment
         const raceStartTime = Date.now();
@@ -190,7 +194,11 @@ export class AnimationManager {
             if (!route.isPlaying) return;
 
             const state = route.animationState;
-            const elapsedMs = (now - state.startTime) * this.playbackSpeed;
+            const rawElapsedMs = (now - state.startTime) * this.playbackSpeed;
+            // Subtract the offset so a late-started route's own elapsed clock
+            // is shifted forward to match the reference's true elapsed time.
+            const offsetMs = (this.raceTimeOffsets?.[route.filename] || 0) * 1000;
+            const elapsedMs = rawElapsedMs - offsetMs;
 
             // Find position based on elapsed time from route start
             const targetIndex = this.findPositionAtTime(route, elapsedMs);
@@ -243,6 +251,7 @@ export class AnimationManager {
             route.animationState = null;
         });
         this.racingRoutes = null;
+        this.raceTimeOffsets = null;
         this.activeAnimations.clear();
         document.getElementById('playbackControls').classList.remove('show');
     }

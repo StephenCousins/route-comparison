@@ -242,6 +242,29 @@ export class FileParser {
         return null;
     }
 
+    // Build a device/firmware summary from FIT file_id + device_info messages.
+    // device_info's `product` field is a raw numeric ID (not name-resolved by
+    // the parser) — fall back to a manufacturer+ID label when `product_name`
+    // (a string some firmwares write) isn't present in the file.
+    static buildDeviceInfo(data) {
+        const deviceInfos = data.device_infos || [];
+        const fileId = (data.file_ids || [])[0] || null;
+        const primary = deviceInfos.find(d => d.source_type === 'local') || deviceInfos[0] || null;
+
+        const manufacturer = primary?.manufacturer ?? fileId?.manufacturer ?? null;
+        const productId = primary?.product ?? fileId?.product ?? null;
+        const productName = primary?.product_name ?? fileId?.product_name
+            ?? (manufacturer && productId ? `${manufacturer} product ${productId}` : null);
+        const firmwareVersion = primary?.software_version ?? null;
+        const serialNumber = primary?.serial_number ?? fileId?.serial_number ?? null;
+
+        if (!manufacturer && !productName) {
+            return null;
+        }
+
+        return { manufacturer, productName, firmwareVersion, serialNumber };
+    }
+
     static async parseFIT(arrayBuffer, color, filename) {
         const FitParser = await loadFitParser();
         return new Promise((resolve, reject) => {
@@ -266,8 +289,11 @@ export class FileParser {
                     return;
                 }
 
+                const device = this.buildDeviceInfo(data);
+
                 const coordinates = [], elevations = [], timestamps = [];
                 const heartRates = [], cadences = [], powers = [], speeds = [], paces = [];
+                const gpsAccuracies = [];
 
                 records.forEach(record => {
                     if (record.position_lat !== undefined && record.position_long !== undefined) {
@@ -281,6 +307,7 @@ export class FileParser {
                             heartRates.push(record.heart_rate ?? null);
                             cadences.push(record.cadence !== null && record.cadence !== undefined ? record.cadence * 2 : null);
                             powers.push(record.power ?? null);
+                            gpsAccuracies.push(record.gps_accuracy ?? null);
 
                             let speedKmh = null;
                             if (record.enhanced_speed !== undefined && record.enhanced_speed !== null) {
@@ -311,13 +338,14 @@ export class FileParser {
                 console.log(`  Speed values: ${nonNullSpeeds.length} non-null of ${smoothedSpeeds.length} total`);
 
                 resolve(this.createRouteData(filename, color, coordinates, elevations,
-                    timestamps, heartRates, cadences, powers, smoothedSpeeds, smoothedPaces));
+                    timestamps, heartRates, cadences, powers, smoothedSpeeds, smoothedPaces,
+                    { gpsAccuracies, device }));
             });
         });
     }
 
     static createRouteData(filename, color, coordinates, elevations, timestamps,
-        heartRates, cadences, powers, speeds, paces) {
+        heartRates, cadences, powers, speeds, paces, { gpsAccuracies = [], device = null } = {}) {
         const distance = Utils.calculateDistance(coordinates);
         const elevStats = Utils.calculateElevationStats(elevations);
 
@@ -335,6 +363,8 @@ export class FileParser {
             heartRates,
             cadences,
             powers,
+            gpsAccuracies,
+            device,
             speeds,
             paces,
             timestamps,

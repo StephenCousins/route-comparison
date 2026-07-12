@@ -61,6 +61,11 @@ export const Utils = {
         return `${Math.round(m)} m`;
     },
 
+    formatDeviation(m) {
+        if (m === null || m === undefined || isNaN(m)) return 'N/A';
+        return `${Math.round(m)} m`;
+    },
+
     formatDuration(seconds) {
         if (!seconds) return 'N/A';
         const hours = Math.floor(seconds / 3600);
@@ -150,6 +155,17 @@ export const Utils = {
         return sorted.length % 2 === 0
             ? (sorted[mid - 1] + sorted[mid]) / 2
             : sorted[mid];
+    },
+
+    percentile(arr, p) {
+        if (!arr || arr.length === 0) return null;
+        const sorted = [...arr].sort((a, b) => a - b);
+        const index = (p / 100) * (sorted.length - 1);
+        const lower = Math.floor(index);
+        const upper = Math.ceil(index);
+        if (lower === upper) return sorted[lower];
+        const weight = index - lower;
+        return sorted[lower] * (1 - weight) + sorted[upper] * weight;
     },
 
     calculateMAD(arr) {
@@ -292,9 +308,12 @@ export const Utils = {
         return cleaned;
     },
 
-    // Time Gap Analysis utilities
-    buildTimeDistanceMap(route) {
-        const map = { distances: [0], times: [0] };
+    // Time Gap Analysis utilities. timeOffsetSeconds shifts every elapsed-time
+    // value (including the route's own t=0) — used to correct for a device that
+    // started recording late relative to another device on the same run. It
+    // never touches route.timestamps itself, so the raw recording is preserved.
+    buildTimeDistanceMap(route, timeOffsetSeconds = 0) {
+        const map = { distances: [0], times: [timeOffsetSeconds] };
 
         if (!route.timestamps || route.timestamps.length === 0) {
             return null;
@@ -312,7 +331,7 @@ export const Utils = {
             if (route.timestamps[i]) {
                 const elapsedTime = (route.timestamps[i].getTime() - startTime) / 1000;
                 map.distances.push(cumulativeDistance);
-                map.times.push(elapsedTime);
+                map.times.push(elapsedTime + timeOffsetSeconds);
             }
         }
 
@@ -357,21 +376,67 @@ export const Utils = {
         return t1 + ratio * (t2 - t1);
     },
 
-    calculateTimeGaps(referenceRoute, comparisonRoutes, sampleInterval = 0.1) {
+    // Inverse of getTimeAtDistance: cumulative distance (km) covered by the
+    // given elapsed time. map.times must be monotonically increasing, which
+    // buildTimeDistanceMap guarantees (chronological timestamps + a constant offset).
+    getDistanceAtTime(map, targetTime) {
+        if (!map || map.times.length < 2) return null;
+
+        if (targetTime > map.times[map.times.length - 1]) {
+            return null;
+        }
+
+        if (targetTime <= map.times[0]) {
+            return map.distances[0];
+        }
+
+        let low = 0;
+        let high = map.times.length - 1;
+
+        while (low < high - 1) {
+            const mid = Math.floor((low + high) / 2);
+            if (map.times[mid] <= targetTime) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+
+        const t1 = map.times[low];
+        const t2 = map.times[high];
+        const d1 = map.distances[low];
+        const d2 = map.distances[high];
+
+        if (t2 === t1) return d1;
+
+        const ratio = (targetTime - t1) / (t2 - t1);
+        return d1 + ratio * (d2 - d1);
+    },
+
+    // distanceOffsets (km, keyed by filename — the same Auto-Align values used
+    // elsewhere) correct for the two routes' distance-0 points not being the
+    // same physical location. Without this, comparing "time at distance d" is
+    // comparing d on each route's OWN odometer — different physical points —
+    // and applying only a time offset actively makes the gap worse rather than
+    // better. d is always in the reference route's physical frame; a
+    // comparison route's own distance at that physical point is d - offset.
+    calculateTimeGaps(referenceRoute, comparisonRoutes, sampleInterval = 0.1, timeOffsets = {}, distanceOffsets = {}) {
         const refMap = this.buildTimeDistanceMap(referenceRoute);
         if (!refMap) return null;
 
         const compMaps = comparisonRoutes.map(r => ({
             route: r,
-            map: this.buildTimeDistanceMap(r)
+            map: this.buildTimeDistanceMap(r, timeOffsets[r.filename] || 0),
+            distanceOffset: distanceOffsets[r.filename] || 0
         })).filter(c => c.map !== null);
 
         if (compMaps.length === 0) return null;
 
-        // Find the minimum max distance across all routes
+        // Find the minimum max distance across all routes, in the reference's
+        // physical frame (a comp route's own max distance + its offset).
         const maxDistances = [refMap.distances[refMap.distances.length - 1]];
         compMaps.forEach(c => {
-            maxDistances.push(c.map.distances[c.map.distances.length - 1]);
+            maxDistances.push(c.map.distances[c.map.distances.length - 1] + c.distanceOffset);
         });
         const maxDist = Math.min(...maxDistances);
 
@@ -388,7 +453,7 @@ export const Utils = {
             };
 
             compMaps.forEach(c => {
-                const compTime = this.getTimeAtDistance(c.map, d);
+                const compTime = this.getTimeAtDistance(c.map, d - c.distanceOffset);
                 if (compTime !== null) {
                     point.comparisons.push({
                         route: c.route,
@@ -408,6 +473,298 @@ export const Utils = {
             gaps,
             maxDistance: maxDist
         };
+    },
+
+    // Distance Drift: cumulative-distance difference between routes sampled at
+    // equal elapsed time (the mirror image of calculateTimeGaps, which samples
+    // at equal distance). A device that reads consistently long/short shows up
+    // as a steadily diverging drift line rather than a flat one.
+    //
+    // distanceOffsets (km, keyed by filename — the same values Auto-Align seeds
+    // into ChartManager.routeOffsets) correct for the two routes' distance-0
+    // points not being the same physical location (different GPS-lock timing,
+    // or a route that started recording partway into the run). Without this,
+    // any such gap reads as constant "drift" and swamps genuine odometer error.
+    calculateDistanceDrift(referenceRoute, comparisonRoutes, sampleInterval = 10, timeOffsets = {}, distanceOffsets = {}) {
+        const refMap = this.buildTimeDistanceMap(referenceRoute);
+        if (!refMap) return null;
+
+        const compMaps = comparisonRoutes.map(r => ({
+            route: r,
+            map: this.buildTimeDistanceMap(r, timeOffsets[r.filename] || 0)
+        })).filter(c => c.map !== null);
+
+        if (compMaps.length === 0) return null;
+
+        // A timeOffsetSeconds shift means a route's map may not start at t=0 —
+        // sample from the latest start to the earliest end across all routes.
+        const startTimes = [refMap.times[0]];
+        const endTimes = [refMap.times[refMap.times.length - 1]];
+        compMaps.forEach(c => {
+            startTimes.push(c.map.times[0]);
+            endTimes.push(c.map.times[c.map.times.length - 1]);
+        });
+        const startTime = Math.max(...startTimes);
+        const endTime = Math.min(...endTimes);
+
+        const drifts = [];
+        for (let t = startTime; t <= endTime; t += sampleInterval) {
+            const refDistance = this.getDistanceAtTime(refMap, t);
+            if (refDistance === null) continue;
+
+            const point = { time: t, referenceDistance: refDistance, comparisons: [] };
+
+            compMaps.forEach(c => {
+                const rawDistance = this.getDistanceAtTime(c.map, t);
+                if (rawDistance !== null) {
+                    const distance = rawDistance + (distanceOffsets[c.route.filename] || 0);
+                    point.comparisons.push({
+                        route: c.route,
+                        distance,
+                        drift: distance - refDistance // Positive = reads long, Negative = reads short
+                    });
+                }
+            });
+
+            if (point.comparisons.length > 0) {
+                drifts.push(point);
+            }
+        }
+
+        return { referenceRoute, drifts, startTime, endTime };
+    },
+
+    // Cross-Track Deviation (GPS accuracy testing): perpendicular distance from
+    // each testRoute point to the nearest segment of referenceRoute's polyline.
+    // Uses a sequential local-window search (consecutive test points project to
+    // nearby reference segments) with a grid-indexed broad search as a fallback
+    // when the window search "loses" the thread — keeps the common case near
+    // O(n) instead of the O(n*m) a naive full scan per point would cost.
+    calculateCrossTrackDeviation(testRoute, referenceRoute, options = {}) {
+        const WINDOW = options.window ?? 40;
+        const LOST_THRESHOLD_M = options.lostThresholdM ?? 150;
+        const MAX_MATCH_M = options.maxMatchM ?? 500;
+        const GRID_CELL_DEG = 0.001; // ~110m at the equator
+
+        const refCoords = referenceRoute.coordinates;
+        if (!refCoords || refCoords.length < 2 || !testRoute.coordinates || testRoute.coordinates.length === 0) {
+            return null;
+        }
+
+        // Local flat-Earth projection centered on the reference route's start —
+        // accurate enough at single-course scale (<0.1% error under ~50km) and
+        // far cheaper than per-segment great-circle math.
+        const origin = refCoords[0];
+        const mPerDegLat = 110540;
+        const mPerDegLng = 111320 * Math.cos(this.toRad(origin.lat));
+        const project = (coord) => ({
+            x: (coord.lng - origin.lng) * mPerDegLng,
+            y: (coord.lat - origin.lat) * mPerDegLat
+        });
+
+        const refPoints = refCoords.map(project);
+        const refCumDist = this.buildCumulativeDistances(referenceRoute);
+
+        // Coarse spatial grid over the reference route, consulted only when the
+        // local window search is lost (course diverges, GPS gap, loop/out-and-back).
+        const grid = new Map();
+        const cellKey = (lat, lng) => `${Math.round(lat / GRID_CELL_DEG)},${Math.round(lng / GRID_CELL_DEG)}`;
+        refCoords.forEach((coord, i) => {
+            const key = cellKey(coord.lat, coord.lng);
+            if (!grid.has(key)) grid.set(key, []);
+            grid.get(key).push(i);
+        });
+
+        const distanceToSegment = (p, a, b) => {
+            const abx = b.x - a.x, aby = b.y - a.y;
+            const lenSq = abx * abx + aby * aby;
+            let t = lenSq > 0 ? ((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq : 0;
+            t = Math.max(0, Math.min(1, t));
+            const dx = p.x - (a.x + t * abx);
+            const dy = p.y - (a.y + t * aby);
+            return { distance: Math.sqrt(dx * dx + dy * dy), t };
+        };
+
+        const bestInRange = (p, startIdx, endIdx) => {
+            let best = { distance: Infinity, refSegmentIndex: Math.max(0, startIdx), t: 0 };
+            const lo = Math.max(0, startIdx);
+            const hi = Math.min(refPoints.length - 2, endIdx);
+            for (let j = lo; j <= hi; j++) {
+                const { distance, t } = distanceToSegment(p, refPoints[j], refPoints[j + 1]);
+                if (distance < best.distance) {
+                    best = { distance, refSegmentIndex: j, t };
+                }
+            }
+            return best;
+        };
+
+        let refPointer = 0;
+        const perPointDeviations = [];
+        const matchedRefIndex = [];
+        // Distance-along-reference (km) interpolated within the matched segment
+        // via its projection parameter t — more precise than refCumDist[matchedRefIndex]
+        // alone, which would floor to the segment's start point.
+        const matchedRefDistance = [];
+
+        testRoute.coordinates.forEach((testCoord) => {
+            const p = project(testCoord);
+            let best = bestInRange(p, refPointer - WINDOW, refPointer + WINDOW);
+
+            if (best.distance > LOST_THRESHOLD_M) {
+                const key = cellKey(testCoord.lat, testCoord.lng);
+                const [gLat, gLng] = key.split(',').map(Number);
+                const candidateIndices = new Set();
+                for (let dLat = -1; dLat <= 1; dLat++) {
+                    for (let dLng = -1; dLng <= 1; dLng++) {
+                        const neighbours = grid.get(`${gLat + dLat},${gLng + dLng}`);
+                        if (neighbours) neighbours.forEach(i => candidateIndices.add(i));
+                    }
+                }
+                let broadBest = { distance: Infinity, refSegmentIndex: refPointer, t: 0 };
+                candidateIndices.forEach(i => {
+                    const cand = bestInRange(p, i - 1, i + 1);
+                    if (cand.distance < broadBest.distance) broadBest = cand;
+                });
+                if (broadBest.distance < best.distance) best = broadBest;
+            }
+
+            if (best.distance > MAX_MATCH_M) {
+                perPointDeviations.push(null);
+                matchedRefIndex.push(null);
+                matchedRefDistance.push(null);
+            } else {
+                perPointDeviations.push(best.distance);
+                matchedRefIndex.push(best.refSegmentIndex);
+                const segStart = refCumDist[best.refSegmentIndex];
+                const segEnd = refCumDist[best.refSegmentIndex + 1];
+                matchedRefDistance.push(segStart + best.t * (segEnd - segStart));
+                refPointer = best.refSegmentIndex;
+            }
+        });
+
+        const confident = perPointDeviations.filter(d => d !== null);
+        const stats = confident.length > 0 ? {
+            mean: confident.reduce((a, b) => a + b, 0) / confident.length,
+            median: this.median(confident),
+            p95: this.percentile(confident, 95),
+            max: Math.max(...confident)
+        } : { mean: null, median: null, p95: null, max: null };
+
+        return { perPointDeviations, matchedRefIndex, matchedRefDistance, refCumDist, stats };
+    },
+
+    // Auto-Alignment: derives two independent corrections between testRoute and
+    // referenceRoute by geographically matching an "anchor window" near the
+    // start of testRoute (50m-250m in, skipping noisy start-line GPS wander).
+    //  - distanceOffsetKm: for distance-indexed views (the metric charts).
+    //  - timeOffsetSeconds: for elapsed-time-indexed views (Time Gap, Race) —
+    //    only computed when both routes' start timestamps are close enough in
+    //    real time to plausibly be the same run (see sameDayComparison).
+    // Never mutates testRoute/referenceRoute — callers apply the offsets externally.
+    calculateAutoAlignment(testRoute, referenceRoute, options = {}) {
+        const ANCHOR_MIN_KM = options.anchorMinKm ?? 0.05;
+        const ANCHOR_MAX_KM = options.anchorMaxKm ?? 0.25;
+        const CONFIDENT_MATCH_M = options.confidentMatchM ?? 75;
+        const SAME_RUN_HOURS = options.sameRunHours ?? 6;
+
+        const deviation = this.calculateCrossTrackDeviation(testRoute, referenceRoute, options);
+        if (!deviation) return null;
+
+        const { perPointDeviations, matchedRefIndex, matchedRefDistance, refCumDist, stats } = deviation;
+        const testCumDist = this.buildCumulativeDistances(testRoute);
+
+        const anchorIndices = [];
+        for (let i = 0; i < testRoute.coordinates.length; i++) {
+            const d = testCumDist[i];
+            if (d < ANCHOR_MIN_KM || d > ANCHOR_MAX_KM) continue;
+            if (perPointDeviations[i] === null || perPointDeviations[i] > CONFIDENT_MATCH_M) continue;
+            anchorIndices.push(i);
+        }
+
+        // Confidence signal — computed regardless of whether an anchor window
+        // was found, so the UI can explain a low-confidence/no-match result.
+        const total = perPointDeviations.length;
+        const confidentValues = perPointDeviations.filter(d => d !== null && d < CONFIDENT_MATCH_M);
+        const coverage = total > 0 ? confidentValues.length / total : 0;
+        const avgDeviation = confidentValues.length > 0
+            ? confidentValues.reduce((a, b) => a + b, 0) / confidentValues.length
+            : null;
+
+        const matchedIndices = matchedRefIndex.filter(i => i !== null);
+        const refPointCount = refCumDist.length;
+        const overlapFraction = matchedIndices.length > 0 && refPointCount > 1
+            ? (Math.max(...matchedIndices) - Math.min(...matchedIndices)) / (refPointCount - 1)
+            : 0;
+
+        // Monotonicity guard: a loop/out-and-back course produces a matchedRefIndex
+        // sequence that reverses direction at the turnaround — a small number of
+        // reversals is normal GPS noise, a large number means the match is ambiguous.
+        let reversals = 0;
+        let lastDir = 0;
+        let lastIdx = null;
+        matchedRefIndex.forEach((idx) => {
+            if (idx === null) return;
+            if (lastIdx !== null) {
+                const dir = Math.sign(idx - lastIdx);
+                if (dir !== 0 && lastDir !== 0 && dir !== lastDir) reversals++;
+                if (dir !== 0) lastDir = dir;
+            }
+            lastIdx = idx;
+        });
+        const monotonic = reversals <= Math.max(1, Math.floor(total * 0.01));
+
+        let level;
+        if (!monotonic) {
+            level = 'low';
+        } else if (coverage > 0.9 && avgDeviation !== null && avgDeviation < 15 && overlapFraction > 0.8) {
+            level = 'high';
+        } else if (coverage > 0.6 && avgDeviation !== null && avgDeviation < 40) {
+            level = 'medium';
+        } else {
+            level = 'low';
+        }
+
+        const confidence = { level, coverage, avgDeviation, overlapFraction, monotonic, deviationStats: stats };
+
+        if (anchorIndices.length === 0) {
+            return { distanceOffsetKm: null, timeOffsetSeconds: null, sameDayComparison: false, confidence };
+        }
+
+        const distanceDiffs = anchorIndices.map(i => matchedRefDistance[i] - testCumDist[i]);
+        const distanceOffsetKm = this.median(distanceDiffs);
+
+        // Only compute a time-offset when the two starts are close enough in
+        // real time to plausibly be the same run (same-day late start), not a
+        // different-day comparison where Race/Time-Gap head-to-head timing
+        // isn't a meaningful concept.
+        let timeOffsetSeconds = null;
+        let sameDayComparison = false;
+        const refStart = referenceRoute.timestamps?.[0];
+        const testStart = testRoute.timestamps?.[0];
+        if (refStart && testStart) {
+            const hoursApart = Math.abs(refStart.getTime() - testStart.getTime()) / 3600000;
+            sameDayComparison = hoursApart < SAME_RUN_HOURS;
+        }
+
+        if (sameDayComparison) {
+            const refMap = this.buildTimeDistanceMap(referenceRoute);
+            const testMap = this.buildTimeDistanceMap(testRoute);
+            if (refMap && testMap) {
+                const timeDiffs = [];
+                anchorIndices.forEach((i) => {
+                    const testElapsed = this.getTimeAtDistance(testMap, testCumDist[i]);
+                    const refElapsed = this.getTimeAtDistance(refMap, matchedRefDistance[i]);
+                    if (testElapsed !== null && refElapsed !== null) {
+                        timeDiffs.push(refElapsed - testElapsed);
+                    }
+                });
+                if (timeDiffs.length > 0) {
+                    timeOffsetSeconds = this.median(timeDiffs);
+                }
+            }
+        }
+
+        return { distanceOffsetKm, timeOffsetSeconds, sameDayComparison, confidence };
     },
 
     formatTimeDelta(seconds) {
@@ -921,6 +1278,30 @@ export const Utils = {
         const normalized = (clampedPace - minPace) / (maxPace - minPace);
 
         // Two-stage gradient: green->yellow (0-0.5), yellow->red (0.5-1)
+        if (normalized <= 0.5) {
+            return this.interpolateColor(GREEN, YELLOW, normalized * 2);
+        } else {
+            return this.interpolateColor(YELLOW, RED, (normalized - 0.5) * 2);
+        }
+    },
+
+    // Green (on-course) -> Yellow -> Red (off-course). maxDeviation is typically
+    // the p95 deviation rather than the max, so a single outlier point doesn't
+    // wash out the rest of the gradient.
+    getDeviationColor(deviationMeters, maxDeviation) {
+        const GREEN = '#34A853';
+        const YELLOW = '#FBBC04';
+        const RED = '#EA4335';
+
+        if (deviationMeters === null || deviationMeters === undefined || isNaN(deviationMeters)) {
+            return '#9E9E9E'; // Grey for unmatched/no-data points
+        }
+        if (!maxDeviation || maxDeviation <= 0) {
+            return GREEN;
+        }
+
+        const normalized = Math.max(0, Math.min(1, deviationMeters / maxDeviation));
+
         if (normalized <= 0.5) {
             return this.interpolateColor(GREEN, YELLOW, normalized * 2);
         } else {

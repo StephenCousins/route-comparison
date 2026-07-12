@@ -85,12 +85,16 @@
                     <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="heartrate" onclick="compareMetric('heartrate')">Heart Rate</button>
                     <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="cadence" onclick="compareMetric('cadence')">Cadence</button>
                     <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="power" onclick="compareMetric('power')">Power</button>
+                    <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="gpsaccuracy" title="Needs FIT files with recorded GPS accuracy data — not available from GPX" onclick="compareMetric('gpsaccuracy')">GPS Accuracy</button>
                 </div>
                 <div class="cmp-group" role="group" aria-label="Analyse">
                     <span class="cmp-group-label">Analyse</span>
                     <button class="cmp-btn cmp-btn--analyse comparison-timegap-btn" data-metric="timegap" title="Needs 2+ routes with recorded time" onclick="compareTimeGap()">Time Gap</button>
                     <button class="cmp-btn cmp-btn--analyse comparison-splits-btn" data-metric="splits" title="Needs 2+ routes with recorded time" onclick="compareSplits()">Splits</button>
                     <button class="cmp-btn cmp-btn--analyse comparison-segment-btn" data-metric="segment" title="Needs 2+ routes with recorded time" onclick="compareSegment()">Segment</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-deviation-btn" data-metric="deviation" title="How far each route strays sideways from the reference route (GPS accuracy). Needs 2+ selected routes" onclick="compareDeviation()">Deviation</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-drift-btn" data-metric="drift" title="Whether a device's odometer reads long or short over time vs the reference route. Needs 2+ routes with recorded time" onclick="compareDistanceDrift()">Distance Drift</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-autoalign-btn" data-metric="autoalign" title="Automatically aligns routes for Time Gap/Race/charts and shows the result as a notification — doesn't open a panel. Needs 2+ selected routes" onclick="autoAlign()">Auto-Align</button>
                 </div>
                 <div class="cmp-group cmp-group--actions">
                     <button class="cmp-btn cmp-btn--primary comparison-race-btn" data-metric="race" title="Needs 2+ routes with recorded time" onclick="startRace()">Race</button>
@@ -194,6 +198,34 @@
                 <button id="analyzeSegmentBtn" class="analyze-segment-btn" onclick="analyzeSegment()">Compare Segment</button>
             </div>
             <div id="segmentResults" class="segment-results"></div>
+        </div>
+    </div>
+
+    <!-- GPS Deviation Modal -->
+    <div id="deviationModal" role="dialog" aria-modal="true">
+        <div class="deviation-modal-content">
+            <div class="deviation-modal-header">
+                <h2>GPS Deviation</h2>
+                <button class="modal-close" onclick="closeDeviationModal()">Close</button>
+            </div>
+            <p class="deviation-modal-hint">Perpendicular distance from each route to the reference route (marked REF — the first selected route with recorded time, if any). "Show" colors that route's map line green → red, from on-course up to its own worst 5% of points — the scale is per-route, not a fixed distance.</p>
+            <div class="deviation-table-container">
+                <table id="deviationTable"></table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Distance Drift Modal -->
+    <div id="distanceDriftModal" role="dialog" aria-modal="true">
+        <div class="deviation-modal-content">
+            <div class="deviation-modal-header">
+                <h2>Distance Drift</h2>
+                <button class="modal-close" onclick="closeDistanceDriftModal()">Close</button>
+            </div>
+            <p class="deviation-modal-hint">Cumulative distance difference vs. the reference route (the first selected route, marked REF), sampled at equal elapsed time. A steadily diverging value means a device reads consistently long or short.</p>
+            <div class="deviation-table-container">
+                <table id="distanceDriftTable"></table>
+            </div>
         </div>
     </div>
 

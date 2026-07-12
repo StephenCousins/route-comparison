@@ -159,5 +159,44 @@ describe('Time Gap Analysis Functions', () => {
             // Should only compare up to shorter route's distance
             expect(result.maxDistance).toBeLessThanOrEqual(1.1);
         });
+
+        it('should show a near-zero gap for an identical device once both Auto-Align offsets are applied', () => {
+            // A device that started recording late is NOT actually behind — it's
+            // physically at a different point on the course. Applying only the
+            // time offset (without the matching distance offset) samples each
+            // route's OWN odometer at the same value, which are different
+            // physical points, and makes the reported gap worse, not better.
+            const latStep = 0.00003; // ~3.3m/point, 1 point/sec
+            const N = 300;
+            const refCoords = Array.from({ length: N }, (_, i) => ({ lat: 51.5 + i * latStep, lng: -0.1 }));
+            const t0 = new Date('2026-07-12T09:00:00Z').getTime();
+            const referenceRoute = {
+                coordinates: refCoords,
+                timestamps: refCoords.map((_, i) => new Date(t0 + i * 1000)),
+                filename: 'ref.gpx'
+            };
+
+            const LATE = 15; // seconds/points late — identical pace, so a true gap of 0
+            const compRoute = {
+                coordinates: refCoords.slice(LATE).map(c => ({ ...c })),
+                timestamps: refCoords.slice(LATE).map((_, k) => new Date(t0 + (LATE + k) * 1000)),
+                filename: 'comp.gpx'
+            };
+
+            const align = Utils.calculateAutoAlignment(compRoute, referenceRoute);
+            expect(align.timeOffsetSeconds).toBeCloseTo(LATE, 0);
+
+            const timeOnly = Utils.calculateTimeGaps(referenceRoute, [compRoute], 0.1,
+                { 'comp.gpx': align.timeOffsetSeconds });
+            const midTimeOnly = timeOnly.gaps[Math.floor(timeOnly.gaps.length / 2)];
+            // Confirms the bug is real: time offset alone makes it worse, not better.
+            expect(Math.abs(midTimeOnly.comparisons[0].gap)).toBeGreaterThan(10);
+
+            const corrected = Utils.calculateTimeGaps(referenceRoute, [compRoute], 0.1,
+                { 'comp.gpx': align.timeOffsetSeconds },
+                { 'comp.gpx': align.distanceOffsetKm });
+            const midCorrected = corrected.gaps[Math.floor(corrected.gaps.length / 2)];
+            expect(Math.abs(midCorrected.comparisons[0].gap)).toBeLessThan(0.01);
+        });
     });
 });
