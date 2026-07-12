@@ -362,9 +362,22 @@ export class FileParser {
 
                 // Debug logging
                 const nonNullSpeeds = smoothedSpeeds.filter(s => s !== null && s !== undefined);
+                const countValid = (arr) => arr.filter(v => v !== null && v !== undefined).length;
                 console.log('FIT File Parsed:');
                 console.log(`  Total points: ${coordinates.length}`);
                 console.log(`  Speed values: ${nonNullSpeeds.length} non-null of ${smoothedSpeeds.length} total`);
+                console.log(`  Device: ${device ? `${device.productName || device.manufacturer} (fw ${device.firmwareVersion})` : 'not found'}`);
+                console.log(`  Session summary: ${sessionSummary ? 'found' : 'not found'}`);
+                console.log('  Running dynamics coverage (non-null points):', {
+                    verticalOscillation: `${countValid(verticalOscillations)}/${coordinates.length}`,
+                    groundContactTime: `${countValid(groundContactTimes)}/${coordinates.length}`,
+                    verticalRatio: `${countValid(verticalRatios)}/${coordinates.length}`,
+                    groundContactBalance: `${countValid(groundContactBalances)}/${coordinates.length}`,
+                    stepLength: `${countValid(stepLengths)}/${coordinates.length}`
+                });
+                if (records[0]) {
+                    console.log('  First record\'s raw field keys (for diagnosing missing metrics):', Object.keys(records[0]));
+                }
 
                 resolve(this.createRouteData(filename, color, coordinates, elevations,
                     timestamps, heartRates, cadences, powers, smoothedSpeeds, smoothedPaces,

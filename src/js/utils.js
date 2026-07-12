@@ -98,9 +98,22 @@ export const Utils = {
             return valid.length > 0 ? valid.reduce((a, b) => a + b, 0) / valid.length : null;
         };
 
-        const total = (route.verticalOscillations || []).length;
-        const validCount = (route.verticalOscillations || [])
-            .filter(v => v !== null && v !== undefined && !isNaN(v)).length;
+        // Coverage = fraction of points where AT LEAST ONE dynamics field has
+        // data. Not just vertical oscillation — wrist-only running dynamics
+        // (no HRM-Pro/pod) can report vertical oscillation + ground contact
+        // time but not GCT balance/vertical ratio/step length, and it's not
+        // safe to assume any one field is "the" representative one.
+        const fields = [
+            route.verticalOscillations, route.groundContactTimes, route.verticalRatios,
+            route.groundContactBalances, route.stepLengths
+        ];
+        const total = Math.max(0, ...fields.map(f => (f || []).length));
+        let anyDataCount = 0;
+        for (let i = 0; i < total; i++) {
+            if (fields.some(f => f && f[i] !== null && f[i] !== undefined && !isNaN(f[i]))) {
+                anyDataCount++;
+            }
+        }
 
         return {
             verticalOscillation: avg(route.verticalOscillations),
@@ -108,7 +121,7 @@ export const Utils = {
             verticalRatio: avg(route.verticalRatios),
             groundContactBalance: avg(route.groundContactBalances),
             stepLength: avg(route.stepLengths),
-            coverage: total > 0 ? validCount / total : 0
+            coverage: total > 0 ? anyDataCount / total : 0
         };
     },
 

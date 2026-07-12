@@ -46,4 +46,22 @@ describe('calculateRunningDynamicsSummary', () => {
         expect(summary.verticalOscillation).toBeNull();
         expect(summary.coverage).toBe(0);
     });
+
+    it('should report nonzero coverage when only a non-vertical-oscillation field has data', () => {
+        // Wrist-only running dynamics (no HRM-Pro/pod) can report some fields
+        // but not others — coverage must not assume vertical oscillation
+        // specifically is the field to check.
+        const route = {
+            verticalOscillations: [null, null, null, null],
+            groundContactTimes: [null, null, null, null],
+            verticalRatios: [null, null, null, null],
+            groundContactBalances: [null, null, null, null],
+            stepLengths: [1100, 1120, 1130, null]
+        };
+
+        const summary = Utils.calculateRunningDynamicsSummary(route);
+
+        expect(summary.stepLength).toBeCloseTo(1116.67, 1);
+        expect(summary.coverage).toBeCloseTo(0.75, 5);
+    });
 });

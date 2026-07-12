@@ -1251,8 +1251,12 @@ class RouteOverlayApp {
             return;
         }
 
+        // Any one of the 5 fields having data is enough — don't assume
+        // vertical oscillation specifically is present just because some
+        // other dynamics field is (see calculateRunningDynamicsSummary).
+        const DYNAMICS_FIELDS = ['verticalOscillations', 'groundContactTimes', 'verticalRatios', 'groundContactBalances', 'stepLengths'];
         const routesWithData = selectedRoutes.filter(r =>
-            (r.verticalOscillations || []).some(v => v !== null)
+            DYNAMICS_FIELDS.some(field => (r[field] || []).some(v => v !== null && v !== undefined))
         );
 
         if (routesWithData.length === 0) {
