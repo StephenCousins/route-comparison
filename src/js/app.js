@@ -152,6 +152,19 @@ class RouteOverlayApp {
         });
     }
 
+    // Firestore returns Timestamp objects (not plain Dates) for both
+    // top-level fields and array elements — .toDate() is the modern shape,
+    // .seconds the raw shape some cached/older data can have. A bare
+    // `new Date(t)` silently produces Invalid Date for either, which breaks
+    // anything reading route.timestamps (Time Gap, Splits, Segment, Race)
+    // for every point in a loaded session, not just some of them.
+    parseFirestoreTimestamp(t) {
+        if (!t) return null;
+        if (typeof t.toDate === 'function') return t.toDate();
+        if (typeof t.seconds === 'number') return new Date(t.seconds * 1000);
+        return new Date(t);
+    }
+
     async loadSavedSessions() {
         const sessions = await this.storageManager.getSavedSessions();
         const list = document.getElementById('savedSessionsList');
@@ -175,9 +188,7 @@ class RouteOverlayApp {
             const routeNames = session.routes.map(r => r.displayName || 'Unnamed').slice(0, 2);
             const moreText = session.routes.length > 2 ? ` +${session.routes.length - 2} more` : '';
             // Show the saved date — the most useful way to tell similar sessions apart.
-            const created = session.createdAt;
-            const createdDate = created?.toDate ? created.toDate()
-                : (created?.seconds ? new Date(created.seconds * 1000) : null);
+            const createdDate = this.parseFirestoreTimestamp(session.createdAt);
             const dateStr = createdDate
                 ? createdDate.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
                 : '';
@@ -297,7 +308,7 @@ class RouteOverlayApp {
                 device: routeData.device || null,
                 speeds: routeData.speeds || [],
                 paces: routeData.paces || [],
-                timestamps: (routeData.timestamps || []).map(t => t ? new Date(t) : null),
+                timestamps: (routeData.timestamps || []).map(t => this.parseFirestoreTimestamp(t)),
                 stats: {
                     distance: routeData.distance,
                     elevationGain: routeData.elevationStats?.gain || 0,

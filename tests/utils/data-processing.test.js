@@ -194,6 +194,65 @@ describe('calculateElevationStats', () => {
     expect(stats.min).toBe(100);
     expect(stats.max).toBe(200);
   });
+
+  it('should not report significant gain on a flat route with realistic GPS noise', () => {
+    // Deterministic pseudo-noise (~±2m wiggle) around a flat 100m elevation —
+    // the true elevation change is zero. Summing every raw point-to-point
+    // delta (the old approach) reports ~140m of "gain" here purely from
+    // noise; smoothing + a deadband threshold should collapse that to ~0.
+    const N = 200;
+    const flatNoisy = Array.from({ length: N }, (_, i) =>
+      100 + Math.sin(i * 1.7) * 1.5 + Math.sin(i * 0.31) * 0.8
+    );
+
+    const stats = Utils.calculateElevationStats(flatNoisy);
+
+    expect(stats.gain).toBeLessThan(5);
+    expect(stats.loss).toBeLessThan(5);
+  });
+
+  it('should still detect a genuine climb with noise superimposed', () => {
+    const N = 200;
+    const climbNoisy = Array.from({ length: N }, (_, i) => {
+      const trueElevation = 100 + (i / N) * 50; // steady 50m climb
+      const noise = Math.sin(i * 1.7) * 1.5;
+      return trueElevation + noise;
+    });
+
+    const stats = Utils.calculateElevationStats(climbNoisy);
+
+    expect(stats.gain).toBeGreaterThan(40);
+    expect(stats.gain).toBeLessThan(55);
+    expect(stats.loss).toBeLessThan(5);
+  });
+});
+
+describe('calculateElevationChange (split/segment gain and loss)', () => {
+  it('should not inflate gain on a flat noisy segment', () => {
+    const N = 200;
+    const flatNoisy = Array.from({ length: N }, (_, i) =>
+      100 + Math.sin(i * 1.7) * 1.5 + Math.sin(i * 0.31) * 0.8
+    );
+
+    expect(Utils.calculateSplitElevGain(flatNoisy, 0, N - 1)).toBeLessThan(5);
+    expect(Utils.calculateSplitElevLoss(flatNoisy, 0, N - 1)).toBeLessThan(5);
+  });
+
+  it('should smooth using full-array context near a split boundary, not just the slice', () => {
+    const N = 200;
+    const climbNoisy = Array.from({ length: N }, (_, i) => {
+      const trueElevation = 100 + (i / N) * 50;
+      const noise = Math.sin(i * 1.7) * 1.5;
+      return trueElevation + noise;
+    });
+
+    // Sum of each half's gain should roughly reconstruct the whole climb —
+    // confirms smoothing isn't losing context at the slice boundary.
+    const firstHalf = Utils.calculateSplitElevGain(climbNoisy, 0, 99);
+    const secondHalf = Utils.calculateSplitElevGain(climbNoisy, 100, N - 1);
+    expect(firstHalf + secondHalf).toBeGreaterThan(35);
+    expect(firstHalf + secondHalf).toBeLessThan(55);
+  });
 });
 
 describe('haversineDistance', () => {

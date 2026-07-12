@@ -31,7 +31,7 @@ export const Utils = {
         return totalDistance;
     },
 
-    calculateElevationStats(elevations) {
+    calculateElevationStats(elevations, options = {}) {
         if (!elevations || elevations.length === 0) {
             return { gain: 0, loss: 0, min: 0, max: 0 };
         }
@@ -41,16 +41,50 @@ export const Utils = {
             return { gain: 0, loss: 0, min: 0, max: 0 };
         }
 
-        let gain = 0, loss = 0;
         let min = validElevations[0], max = validElevations[0];
-        for (let i = 1; i < validElevations.length; i++) {
-            const diff = validElevations[i] - validElevations[i-1];
-            if (diff > 0) gain += diff;
-            else loss += Math.abs(diff);
-            if (validElevations[i] < min) min = validElevations[i];
-            if (validElevations[i] > max) max = validElevations[i];
+        for (const e of validElevations) {
+            if (e < min) min = e;
+            if (e > max) max = e;
         }
+
+        const { gain, loss } = this.calculateElevationChange(elevations, 0, elevations.length - 1, options);
         return { gain, loss, min, max };
+    },
+
+    // Shared by calculateElevationStats and the per-split/segment gain/loss
+    // helpers below. GPS/barometric elevation is noisy enough that summing
+    // every raw point-to-point delta (the old approach) counts small jitter
+    // as real climbing — a genuinely flat route can report tens of meters of
+    // "gain" from noise alone. Smooth first (median filter, robust against
+    // isolated spike readings), then only accumulate gain/loss once movement
+    // away from the last reference point clears a deadband threshold — the
+    // standard technique GPS platforms use so noise can't masquerade as
+    // elevation change. Smoothing runs over the FULL array before slicing to
+    // [startIdx, endIdx], so a window near a split boundary still has real
+    // neighboring context instead of an artificial edge.
+    calculateElevationChange(elevations, startIdx, endIdx, options = {}) {
+        if (!elevations || startIdx > endIdx) return { gain: 0, loss: 0 };
+
+        const threshold = options.threshold ?? 3; // meters
+        const smoothed = this.rollingMedian(elevations, 5);
+
+        let gain = 0, loss = 0;
+        let reference = null;
+        for (let i = startIdx; i <= endIdx; i++) {
+            const value = smoothed[i];
+            if (value === null || value === undefined || isNaN(value)) continue;
+            if (reference === null) {
+                reference = value;
+                continue;
+            }
+            const diff = value - reference;
+            if (Math.abs(diff) >= threshold) {
+                if (diff > 0) gain += diff;
+                else loss += Math.abs(diff);
+                reference = value;
+            }
+        }
+        return { gain, loss };
     },
 
     formatDistance(km) {
@@ -838,17 +872,7 @@ export const Utils = {
 
     calculateSplitElevGain(elevations, startIdx, endIdx) {
         if (!elevations || startIdx >= endIdx) return 0;
-
-        let gain = 0;
-        for (let i = startIdx + 1; i <= endIdx; i++) {
-            const prev = elevations[i - 1];
-            const curr = elevations[i];
-            if (prev !== null && curr !== null && !isNaN(prev) && !isNaN(curr)) {
-                const diff = curr - prev;
-                if (diff > 0) gain += diff;
-            }
-        }
-        return gain;
+        return this.calculateElevationChange(elevations, startIdx, endIdx).gain;
     },
 
     calculateSplitAvg(arr, startIdx, endIdx) {
@@ -966,17 +990,7 @@ export const Utils = {
     // Segment Analysis utilities
     calculateSplitElevLoss(elevations, startIdx, endIdx) {
         if (!elevations || startIdx >= endIdx) return 0;
-
-        let loss = 0;
-        for (let i = startIdx + 1; i <= endIdx; i++) {
-            const prev = elevations[i - 1];
-            const curr = elevations[i];
-            if (prev !== null && curr !== null && !isNaN(prev) && !isNaN(curr)) {
-                const diff = curr - prev;
-                if (diff < 0) loss += Math.abs(diff);
-            }
-        }
-        return loss;
+        return this.calculateElevationChange(elevations, startIdx, endIdx).loss;
     },
 
     calculateSegmentDuration(route, startIdx, endIdx) {
