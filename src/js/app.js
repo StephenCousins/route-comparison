@@ -344,6 +344,15 @@ class RouteOverlayApp {
                 onClick: (r) => this.handleRouteClick(r)
             });
 
+            // Debug logging — lets you tell from the console whether a loaded
+            // session actually has running-dynamics/session-summary data, or
+            // whether it was saved before that data existed to capture (in
+            // which case re-saving after re-uploading the source file is the
+            // only fix, there's nothing to recover from an old saved session).
+            const hasAnyDynamics = ['verticalOscillations', 'groundContactTimes', 'verticalRatios', 'groundContactBalances', 'stepLengths']
+                .some(field => (route[field] || []).some(v => v !== null && v !== undefined));
+            console.log(`Loaded route "${route.displayName}": running dynamics data = ${hasAnyDynamics}, session summary = ${!!route.sessionSummary}`);
+
             this.routes.push(route);
             this.colorIndex++;
         }
