@@ -198,5 +198,56 @@ describe('Time Gap Analysis Functions', () => {
             const midCorrected = corrected.gaps[Math.floor(corrected.gaps.length / 2)];
             expect(Math.abs(midCorrected.comparisons[0].gap)).toBeLessThan(0.01);
         });
+
+        it('should not crash to a negative sampling range when a distance offset is larger than the route', () => {
+            // A distanceOffset bigger in magnitude than the route itself (e.g.
+            // from a bad/low-confidence Auto-Align match) used to drive maxDist
+            // negative, so the sampling loop's `for (d = 0; d <= maxDist; ...)`
+            // never ran at all and produced zero gaps unconditionally.
+            const referenceRoute = {
+                coordinates: [{ lat: 0, lng: 0 }, { lat: 0.009, lng: 0 }], // ~1km
+                timestamps: [new Date('2024-01-01T00:00:00'), new Date('2024-01-01T00:05:00')]
+            };
+            const compRoute = {
+                coordinates: [{ lat: 0, lng: 0 }, { lat: 0.009, lng: 0 }],
+                timestamps: [new Date('2024-01-01T00:00:00'), new Date('2024-01-01T00:05:00')],
+                filename: 'comp.gpx'
+            };
+
+            const result = Utils.calculateTimeGaps(referenceRoute, [compRoute], 0.1, {}, { 'comp.gpx': -5 });
+
+            expect(result).not.toBeNull();
+            expect(result.maxDistance).toBeGreaterThanOrEqual(0);
+        });
+
+        it('should not let one comparison route with a bad offset break Time Gap for the others', () => {
+            const referenceRoute = {
+                coordinates: [{ lat: 0, lng: 0 }, { lat: 0.009, lng: 0 }], // ~1km
+                timestamps: [new Date('2024-01-01T00:00:00'), new Date('2024-01-01T00:05:00')]
+            };
+            const goodRoute = {
+                coordinates: [{ lat: 0, lng: 0 }, { lat: 0.009, lng: 0 }],
+                timestamps: [new Date('2024-01-01T00:00:00'), new Date('2024-01-01T00:05:30')],
+                filename: 'good.gpx'
+            };
+            const badRoute = {
+                coordinates: [{ lat: 0, lng: 0 }, { lat: 0.0005, lng: 0 }],
+                timestamps: [new Date('2024-01-01T00:00:00'), new Date('2024-01-01T00:00:10')],
+                filename: 'bad.gpx'
+            };
+
+            // bad.gpx gets a nonsense offset (far larger than any real route);
+            // good.gpx has no offset at all and should be unaffected.
+            const result = Utils.calculateTimeGaps(
+                referenceRoute, [goodRoute, badRoute], 0.1, {}, { 'bad.gpx': -50 }
+            );
+
+            expect(result).not.toBeNull();
+            expect(result.gaps.length).toBeGreaterThan(0);
+            expect(result.gaps.some(g => g.comparisons.some(c => c.route.filename === 'good.gpx'))).toBe(true);
+            // maxDistance should reflect good.gpx's real range, not be dragged
+            // toward 0 by bad.gpx's offset.
+            expect(result.maxDistance).toBeGreaterThan(0.5);
+        });
     });
 });

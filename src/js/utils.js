@@ -432,13 +432,19 @@ export const Utils = {
 
         if (compMaps.length === 0) return null;
 
-        // Find the minimum max distance across all routes, in the reference's
-        // physical frame (a comp route's own max distance + its offset).
-        const maxDistances = [refMap.distances[refMap.distances.length - 1]];
-        compMaps.forEach(c => {
-            maxDistances.push(c.map.distances[c.map.distances.length - 1] + c.distanceOffset);
-        });
-        const maxDist = Math.min(...maxDistances);
+        // Sample as far as the reference goes, or as far as the most useful
+        // comparison route reaches (whichever is shorter) — in the reference's
+        // physical frame (a comp route's own max distance + its offset). Using
+        // the MAX across comparison routes (not the min) means one route with
+        // a bad/extreme offset — e.g. from a low-confidence Auto-Align match —
+        // can't collapse the range to nothing for every other selected route;
+        // that one route just stops contributing points past its own range,
+        // same as any route that's genuinely shorter than the others.
+        const refMaxDist = refMap.distances[refMap.distances.length - 1];
+        const compMaxDistances = compMaps.map(c =>
+            c.map.distances[c.map.distances.length - 1] + c.distanceOffset
+        );
+        const maxDist = Math.min(refMaxDist, Math.max(0, ...compMaxDistances));
 
         // Sample at regular intervals
         const gaps = [];
