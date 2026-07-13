@@ -331,6 +331,16 @@ export class ChartManager {
         globalMax += range * 0.1;
         const adjustedRange = globalMax - globalMin;
 
+        // Pace is min/km — a lower number is a *faster* pace, so plotting it
+        // like every other metric (higher number higher on the chart) reads
+        // backwards: slower splits would appear to "climb". Flip the axis so
+        // faster (numerically lower) pace sits at the top, matching how
+        // Speed/Power/etc already put "more" at the top.
+        const invertY = metricType === 'pace';
+        const valueToY = (value) => invertY
+            ? padding.top + ((value - globalMin) / adjustedRange) * chartHeight
+            : padding.top + chartHeight - ((value - globalMin) / adjustedRange) * chartHeight;
+
         // Clear canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -346,7 +356,9 @@ export class ChartManager {
             this.ctx.lineTo(padding.left + chartWidth, y);
             this.ctx.stroke();
 
-            const value = globalMax - (adjustedRange / 5) * i;
+            const value = invertY
+                ? globalMin + (adjustedRange / 5) * i
+                : globalMax - (adjustedRange / 5) * i;
             this.ctx.fillStyle = theme.text;
             this.ctx.font = `11px ${theme.font}`;
             this.ctx.textAlign = 'right';
@@ -380,7 +392,7 @@ export class ChartManager {
                 for (let i = 0; i < route.metricData.length; i++) {
                     if (route.metricData[i] !== null) {
                         const x = padding.left + (route.cumulativeDistances[i] / maxDistance) * chartWidth;
-                        const y = padding.top + chartHeight - ((route.metricData[i] - globalMin) / adjustedRange) * chartHeight;
+                        const y = valueToY(route.metricData[i]);
                         this.ctx.lineTo(x, y);
                     }
                 }
@@ -401,7 +413,7 @@ export class ChartManager {
             for (let i = 0; i < route.metricData.length; i++) {
                 if (route.metricData[i] !== null) {
                     const x = padding.left + (route.cumulativeDistances[i] / maxDistance) * chartWidth;
-                    const y = padding.top + chartHeight - ((route.metricData[i] - globalMin) / adjustedRange) * chartHeight;
+                    const y = valueToY(route.metricData[i]);
                     if (firstPoint) {
                         this.ctx.moveTo(x, y);
                         firstPoint = false;
