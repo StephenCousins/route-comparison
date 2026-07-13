@@ -52,6 +52,70 @@ class RouteOverlayApp {
         this.setupSessionsModal();
         this.setupPlaybackControls();
         this.setupModalDismissal();
+        this.setupComparisonMenubar();
+    }
+
+    // Collapses the Charts/Analyse/Validate button groups into popover
+    // menus. Deliberately a DOM transform rather than hand-authored markup:
+    // every button keeps its original element, classes, and onclick
+    // attribute untouched, so updateComparison()'s class-selector-based
+    // enable/disable logic and every compare*() handler keep working
+    // without modification. Race/Export/Close are single actions and stay
+    // inline outside any menu.
+    setupComparisonMenubar() {
+        const container = document.getElementById('comparisonActions');
+        if (!container) return;
+        const groups = container.querySelectorAll('.cmp-group:not(.cmp-group--actions)');
+
+        const closeAllMenus = (except) => {
+            groups.forEach(g => { if (g !== except) g.classList.remove('open'); });
+        };
+
+        groups.forEach(group => {
+            const label = group.querySelector('.cmp-group-label');
+            const groupName = group.getAttribute('aria-label') || (label ? label.textContent : 'Menu');
+            const buttons = Array.from(group.querySelectorAll('.cmp-btn'));
+
+            const trigger = document.createElement('button');
+            trigger.type = 'button';
+            trigger.className = 'cmp-menu-trigger';
+            trigger.setAttribute('aria-haspopup', 'true');
+            trigger.setAttribute('aria-expanded', 'false');
+            trigger.innerHTML = `${groupName} <svg class="icon"><use href="#icon-chevron-down"/></svg>`;
+
+            const panel = document.createElement('div');
+            panel.className = 'cmp-menu-panel';
+            panel.setAttribute('role', 'menu');
+            buttons.forEach(btn => panel.appendChild(btn));
+
+            group.innerHTML = '';
+            group.classList.add('cmp-group--menu');
+            group.appendChild(trigger);
+            group.appendChild(panel);
+
+            trigger.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isOpen = group.classList.contains('open');
+                closeAllMenus();
+                group.classList.toggle('open', !isOpen);
+                trigger.setAttribute('aria-expanded', String(!isOpen));
+            });
+
+            // Any in-panel action (opening a chart/modal, running Auto-Align)
+            // should close the menu immediately rather than leaving it open
+            // behind whatever it triggered.
+            panel.addEventListener('click', (e) => {
+                if (e.target.closest('.cmp-btn')) {
+                    group.classList.remove('open');
+                    trigger.setAttribute('aria-expanded', 'false');
+                }
+            });
+        });
+
+        document.addEventListener('click', () => closeAllMenus());
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeAllMenus();
+        });
     }
 
     // Every modal can now be closed with Escape or a backdrop click, reusing its
@@ -1945,6 +2009,18 @@ window.compareDistanceDrift = function() {
 
 window.compareRunningDynamics = function() {
     if (app) app.compareRunningDynamics();
+};
+
+// Flips data-theme on <html>, persists the choice, and re-applies anything
+// that reads theme colors at draw time rather than via CSS alone (the map's
+// custom style, and any currently-open canvas chart).
+window.toggleTheme = function() {
+    const root = document.documentElement;
+    const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    if (app?.mapManager?.applyThemeStyle) app.mapManager.applyThemeStyle();
+    if (app?.chartManager?.redrawChart) app.chartManager.redrawChart();
 };
 
 window.closeRunningDynamicsModal = function() {

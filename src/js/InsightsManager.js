@@ -295,7 +295,7 @@ export class InsightsManager {
         if (textContent) {
             container.innerHTML = `<div class="metric-insights-text">${textContent}</div>`;
         } else {
-            container.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No specific insights available</div>';
+            container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px;">No specific insights available</div>';
         }
     }
 

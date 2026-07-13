@@ -40,7 +40,10 @@ export class ChartManager {
     }
 
     redrawChart() {
-        if (this.currentData) {
+        if (!this.currentData) return;
+        if (this.currentData.isTimeGap) {
+            this.drawTimeGapChart(this.currentData.timeGapData);
+        } else {
             this.drawChart(
                 this.currentData.routes,
                 this.currentData.metricType,
@@ -48,6 +51,22 @@ export class ChartManager {
                 this.currentData.formatValue
             );
         }
+    }
+
+    // Reads the current theme's CSS custom properties so canvas drawing
+    // (which can't use var() directly) stays in sync with dark/light mode.
+    getChartTheme() {
+        const styles = window.getComputedStyle(document.documentElement);
+        const read = (name, fallback) => {
+            const value = styles.getPropertyValue(name).trim();
+            return value || fallback;
+        };
+        return {
+            grid: read('--border-hairline-strong', '#e0e0e0'),
+            text: read('--text-secondary', '#666'),
+            axis: read('--text-primary', '#333'),
+            font: read('--font-sans', 'sans-serif')
+        };
     }
 
     setupEventListeners() {
@@ -315,8 +334,10 @@ export class ChartManager {
         // Clear canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+        const theme = this.getChartTheme();
+
         // Draw grid
-        this.ctx.strokeStyle = '#e0e0e0';
+        this.ctx.strokeStyle = theme.grid;
         this.ctx.lineWidth = 1;
         for (let i = 0; i <= 5; i++) {
             const y = padding.top + (chartHeight / 5) * i;
@@ -326,8 +347,8 @@ export class ChartManager {
             this.ctx.stroke();
 
             const value = globalMax - (adjustedRange / 5) * i;
-            this.ctx.fillStyle = '#666';
-            this.ctx.font = '11px sans-serif';
+            this.ctx.fillStyle = theme.text;
+            this.ctx.font = `11px ${theme.font}`;
             this.ctx.textAlign = 'right';
             this.ctx.fillText(formatValue(value).split(' ')[0], padding.left - 8, y + 4);
         }
@@ -340,8 +361,8 @@ export class ChartManager {
             this.ctx.stroke();
 
             const dist = (maxDistance / 10) * i;
-            this.ctx.fillStyle = '#666';
-            this.ctx.font = '11px sans-serif';
+            this.ctx.fillStyle = theme.text;
+            this.ctx.font = `11px ${theme.font}`;
             this.ctx.textAlign = 'center';
             this.ctx.fillText(Utils.formatDistance(dist), x, this.canvas.height - padding.bottom + 20);
         }
@@ -394,7 +415,7 @@ export class ChartManager {
         });
 
         // Draw axes
-        this.ctx.strokeStyle = '#333';
+        this.ctx.strokeStyle = theme.axis;
         this.ctx.lineWidth = 2;
         this.ctx.beginPath();
         this.ctx.moveTo(padding.left, padding.top);
@@ -406,14 +427,14 @@ export class ChartManager {
         this.ctx.save();
         this.ctx.translate(20, this.canvas.height / 2);
         this.ctx.rotate(-Math.PI / 2);
-        this.ctx.fillStyle = '#666';
-        this.ctx.font = '14px sans-serif';
+        this.ctx.fillStyle = theme.text;
+        this.ctx.font = `14px ${theme.font}`;
         this.ctx.textAlign = 'center';
         this.ctx.fillText(yAxisLabel, 0, 0);
         this.ctx.restore();
 
-        this.ctx.fillStyle = '#333';
-        this.ctx.font = '14px sans-serif';
+        this.ctx.fillStyle = theme.axis;
+        this.ctx.font = `14px ${theme.font}`;
         this.ctx.textAlign = 'center';
         this.ctx.fillText('Distance', this.canvas.width / 2, this.canvas.height - 10);
 
@@ -459,8 +480,10 @@ export class ChartManager {
         // Clear canvas
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+        const theme = this.getChartTheme();
+
         // Draw grid
-        this.ctx.strokeStyle = '#e0e0e0';
+        this.ctx.strokeStyle = theme.grid;
         this.ctx.lineWidth = 1;
 
         // Horizontal grid lines (time gaps)
@@ -474,8 +497,8 @@ export class ChartManager {
 
             // Y-axis labels
             const gapValue = maxGap - (2 * maxGap / ySteps) * i;
-            this.ctx.fillStyle = '#666';
-            this.ctx.font = '11px sans-serif';
+            this.ctx.fillStyle = theme.text;
+            this.ctx.font = `11px ${theme.font}`;
             this.ctx.textAlign = 'right';
             this.ctx.fillText(Utils.formatTimeDelta(gapValue), padding.left - 8, y + 4);
         }
@@ -489,15 +512,15 @@ export class ChartManager {
             this.ctx.stroke();
 
             const dist = (maxDistance / 10) * i;
-            this.ctx.fillStyle = '#666';
-            this.ctx.font = '11px sans-serif';
+            this.ctx.fillStyle = theme.text;
+            this.ctx.font = `11px ${theme.font}`;
             this.ctx.textAlign = 'center';
             this.ctx.fillText(Utils.formatDistance(dist), x, this.canvas.height - padding.bottom + 20);
         }
 
         // Draw zero line (reference)
         const zeroY = padding.top + chartHeight / 2;
-        this.ctx.strokeStyle = '#333';
+        this.ctx.strokeStyle = theme.axis;
         this.ctx.lineWidth = 2;
         this.ctx.setLineDash([5, 5]);
         this.ctx.beginPath();
@@ -570,7 +593,7 @@ export class ChartManager {
         });
 
         // Draw axes
-        this.ctx.strokeStyle = '#333';
+        this.ctx.strokeStyle = theme.axis;
         this.ctx.lineWidth = 2;
         this.ctx.beginPath();
         this.ctx.moveTo(padding.left, padding.top);
@@ -582,15 +605,15 @@ export class ChartManager {
         this.ctx.save();
         this.ctx.translate(20, this.canvas.height / 2);
         this.ctx.rotate(-Math.PI / 2);
-        this.ctx.fillStyle = '#666';
-        this.ctx.font = '14px sans-serif';
+        this.ctx.fillStyle = theme.text;
+        this.ctx.font = `14px ${theme.font}`;
         this.ctx.textAlign = 'center';
         this.ctx.fillText('Time Gap (+ behind, - ahead)', 0, 0);
         this.ctx.restore();
 
         // X-axis label
-        this.ctx.fillStyle = '#333';
-        this.ctx.font = '14px sans-serif';
+        this.ctx.fillStyle = theme.axis;
+        this.ctx.font = `14px ${theme.font}`;
         this.ctx.textAlign = 'center';
         this.ctx.fillText('Distance', this.canvas.width / 2, this.canvas.height - 10);
 
@@ -604,10 +627,11 @@ export class ChartManager {
         legend.innerHTML = '';
 
         // Reference route
+        const axisColor = this.getChartTheme().axis;
         const refItem = document.createElement('div');
         refItem.className = 'legend-item';
         refItem.innerHTML = `
-            <div class="legend-color" style="background: #333; height: 2px; border: 1px dashed #333;"></div>
+            <div class="legend-color" style="background: ${axisColor}; height: 2px; border: 1px dashed ${axisColor};"></div>
             <span class="legend-label"><strong>Reference:</strong> ${timeGapData.referenceRoute.displayName}</span>
         `;
         legend.appendChild(refItem);
