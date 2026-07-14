@@ -10,6 +10,21 @@ import { InsightsManager } from './InsightsManager.js';
 import { config } from './config.js';
 import { showToast } from './toast.js';
 
+// Fault Report thresholds — conservative QA rules of thumb, not an official
+// Garmin spec. They decide what gets marked FLAGGED vs OK in generateFaultReport();
+// tune them to match your own test protocol.
+const FAULT_REPORT_THRESHOLDS = {
+    deviationMeanM: 5,        // mean GPS cross-track deviation vs reference
+    deviationP95M: 12,        // p95 GPS cross-track deviation vs reference
+    distanceDriftPct: 2,      // odometer drift vs reference route, at finish
+    sessionDistancePct: 2,    // FIT self-reported vs recomputed-from-track distance
+    sessionDurationSec: 5,    // FIT self-reported vs recomputed duration
+    sessionElevM: 10,         // FIT self-reported vs recomputed/barometric ascent-descent
+    hrMaeBpm: 5,               // heart rate mean absolute error vs reference
+    hrBiasBpm: 5,              // heart rate systematic bias vs reference
+    dynamicsCoveragePct: 90    // running dynamics field coverage floor (only checked when the field is recorded at all)
+};
+
 class RouteOverlayApp {
     constructor() {
         this.routes = [];
@@ -1568,6 +1583,326 @@ class RouteOverlayApp {
         document.getElementById('dropoutModal').classList.remove('show');
     }
 
+    // --- Fault Report ---
+    // Consolidates every "Validate" check (deviation, distance drift, HR/cadence,
+    // running dynamics, session self-check, dropout) into a document a Garmin
+    // engineer can act on: per-metric pass/fail against FAULT_REPORT_THRESHOLDS,
+    // plus a raw incident log (gaps, sensor dropouts, cadence-lock runs) carrying
+    // the timestamp/distance needed to find the exact spot in the source file.
+    generateFaultReport() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+
+        if (selectedRoutes.length < 2) {
+            showToast('Please select at least 2 routes: a reference (known-good) route and one or more test-device routes.');
+            return;
+        }
+
+        const referenceRoute = this.pickReferenceRoute(selectedRoutes);
+        const testRoutes = selectedRoutes.filter(r => r !== referenceRoute);
+
+        const findings = [];
+        const events = [];
+
+        // Self-checks apply to every route individually, reference included —
+        // a reference device can itself have a session self-report bug.
+        [{ route: referenceRoute, role: 'Reference' }, ...testRoutes.map(r => ({ route: r, role: 'Test' }))]
+            .forEach(({ route, role }) => this.collectSelfCheckFindings(route, role, findings, events));
+
+        testRoutes.forEach(testRoute => this.collectComparisonFindings(testRoute, referenceRoute, findings));
+
+        const report = { referenceRoute, testRoutes, findings, events, generatedAt: new Date() };
+
+        const md = this.renderFaultReportMarkdown(report);
+        const csv = this.renderFaultReportCSV(report);
+        const dateStr = report.generatedAt.toISOString().slice(0, 10);
+
+        this.downloadTextFile(`garmin-fault-report-${dateStr}.md`, md, 'text/markdown;charset=utf-8;');
+        this.downloadTextFile(`garmin-fault-report-${dateStr}.csv`, csv, 'text/csv;charset=utf-8;');
+
+        const flaggedCount = findings.filter(f => f.status === 'FLAGGED').length + events.length;
+        showToast(
+            `Fault report generated: ${flaggedCount} flagged item${flaggedCount === 1 ? '' : 's'} (${findings.length} checks, ${events.length} raw incidents).`,
+            flaggedCount > 0 ? 'warning' : 'success',
+            6000
+        );
+    }
+
+    // Cumulative track distance (km) up to a point index — only used for the
+    // handful of flagged events in a fault report, so an O(n) walk per call
+    // is cheap enough to not warrant caching a full prefix-sum array.
+    distanceAtIndex(route, index) {
+        if (!route.coordinates || index === null || index === undefined) return null;
+        let dist = 0;
+        for (let i = 1; i <= index && i < route.coordinates.length; i++) {
+            dist += Utils.haversineDistance(route.coordinates[i - 1], route.coordinates[i]);
+        }
+        return dist;
+    }
+
+    // Per-route checks that don't need a reference: running dynamics coverage,
+    // FIT session self-report vs recomputed-from-track, and recording/sensor
+    // dropouts. Applies to the reference route too.
+    collectSelfCheckFindings(route, role, findings, events) {
+        const T = FAULT_REPORT_THRESHOLDS;
+        const push = (f) => findings.push({ route, role, scope: 'self', ...f });
+
+        const dynamics = Utils.calculateRunningDynamicsSummary(route);
+        const hasAnyDynamics = [dynamics.verticalOscillation, dynamics.groundContactTime, dynamics.verticalRatio,
+            dynamics.groundContactBalance, dynamics.stepLength].some(v => v !== null);
+        if (hasAnyDynamics) {
+            const coveragePct = Math.round(dynamics.coverage * 100);
+            push({
+                category: 'Running Dynamics', metric: 'Field coverage',
+                status: coveragePct < T.dynamicsCoveragePct ? 'FLAGGED' : 'OK',
+                value: `${coveragePct}%`, reference: `>=${T.dynamicsCoveragePct}%`,
+                detail: 'Fraction of track points with at least one running-dynamics field present'
+            });
+        }
+
+        const check = Utils.calculateSessionCheck(route);
+        if (check) {
+            if (check.distanceKm && check.distanceKm.diff !== null) {
+                const diffM = check.distanceKm.diff * 1000;
+                const pct = check.distanceKm.recomputed > 0 ? Math.abs(diffM) / (check.distanceKm.recomputed * 1000) * 100 : 0;
+                push({
+                    category: 'Session Self-Check', metric: 'Distance',
+                    status: pct > T.sessionDistancePct ? 'FLAGGED' : 'OK',
+                    value: `${diffM >= 0 ? '+' : ''}${diffM.toFixed(0)}m (${pct.toFixed(1)}%)`,
+                    reference: `+/-${T.sessionDistancePct}%`,
+                    detail: `Device-reported ${check.distanceKm.reported?.toFixed(2)}km vs recomputed ${check.distanceKm.recomputed?.toFixed(2)}km`
+                });
+            }
+
+            const addDiffFinding = (key, label, unit, threshold) => {
+                const entry = check[key];
+                if (!entry || entry.diff === null) return;
+                push({
+                    category: 'Session Self-Check', metric: label,
+                    status: Math.abs(entry.diff) > threshold ? 'FLAGGED' : 'OK',
+                    value: `${entry.diff >= 0 ? '+' : ''}${entry.diff.toFixed(1)}${unit}`,
+                    reference: `+/-${threshold}${unit}`,
+                    detail: `Device-reported ${entry.reported} vs recomputed ${typeof entry.recomputed === 'number' ? entry.recomputed.toFixed(1) : entry.recomputed}`
+                });
+            };
+            addDiffFinding('durationSeconds', 'Duration', 's', T.sessionDurationSec);
+            addDiffFinding('ascent', 'Ascent', 'm', T.sessionElevM);
+            addDiffFinding('descent', 'Descent', 'm', T.sessionElevM);
+            if (check.baroAscent) addDiffFinding('baroAscent', 'Barometric Ascent', 'm', T.sessionElevM);
+        }
+
+        const dropout = Utils.calculateDropoutDiagnostics(route);
+        push({
+            category: 'Dropout', metric: 'Recording gaps',
+            status: dropout.gaps.length > 0 ? 'FLAGGED' : 'OK',
+            value: dropout.gaps.length === 0 ? 'None' : `${dropout.gaps.length} gap(s), ${Math.round(dropout.gaps.reduce((s, g) => s + g.gapSeconds, 0))}s total`,
+            reference: `typical interval ${dropout.typicalIntervalSeconds !== null ? dropout.typicalIntervalSeconds.toFixed(1) + 's' : 'N/A'}`,
+            detail: 'Gaps between consecutive timestamps well beyond the file\'s typical sampling interval'
+        });
+        dropout.gaps.forEach(g => {
+            events.push({
+                route, role, type: 'Recording gap', status: 'FLAGGED',
+                locationKm: g.atDistanceKm, timestamp: null,
+                detail: `${g.gapSeconds.toFixed(1)}s gap ending at ${g.atDistanceKm.toFixed(2)}km`
+            });
+        });
+
+        const METRIC_LABELS = { heartRate: 'Heart Rate', cadence: 'Cadence', power: 'Power', gpsAccuracy: 'GPS Accuracy' };
+        Object.entries(dropout.nullRuns).forEach(([metric, runs]) => {
+            push({
+                category: 'Dropout', metric: `${METRIC_LABELS[metric]} sensor dropouts`,
+                status: runs.length > 0 ? 'FLAGGED' : 'OK',
+                value: runs.length === 0 ? 'None' : `${runs.length} run(s), ${runs.reduce((s, r) => s + r.pointCount, 0)} pts total`,
+                reference: 'none expected',
+                detail: `Stretches of null ${METRIC_LABELS[metric]} readings mid-route (excludes sensors never recorded at all)`
+            });
+            runs.forEach(r => {
+                events.push({
+                    route, role, type: `${METRIC_LABELS[metric]} dropout`, status: 'FLAGGED',
+                    locationKm: this.distanceAtIndex(route, r.startIndex), timestamp: route.timestamps?.[r.startIndex] || null,
+                    detail: `${r.pointCount} consecutive null points (index ${r.startIndex}-${r.endIndex})`
+                });
+            });
+        });
+
+        if (route.heartRates?.some(h => h !== null) && route.cadences?.some(c => c !== null)) {
+            const lockFlags = Utils.detectCadenceLock(route);
+            push({
+                category: 'HR Validation', metric: 'Cadence-lock (own HR vs own cadence)',
+                status: lockFlags.length > 0 ? 'FLAGGED' : 'OK',
+                value: lockFlags.length === 0 ? 'None' : `${lockFlags.length} section(s), ${lockFlags.reduce((s, f) => s + f.pointCount, 0)} pts`,
+                reference: 'none expected',
+                detail: 'HR reading suspiciously tracks cadence — classic optical-sensor failure mode'
+            });
+            lockFlags.forEach(f => {
+                events.push({
+                    route, role, type: 'Cadence-lock', status: 'FLAGGED',
+                    locationKm: this.distanceAtIndex(route, f.startIndex), timestamp: f.startTime,
+                    detail: `${f.pointCount} consecutive points where HR is within 5bpm of cadence (index ${f.startIndex}-${f.endIndex})`
+                });
+            });
+        }
+    }
+
+    // Checks that compare a test route against the chosen reference route:
+    // GPS cross-track deviation, distance drift, and heart rate accuracy.
+    collectComparisonFindings(testRoute, referenceRoute, findings) {
+        const T = FAULT_REPORT_THRESHOLDS;
+        const push = (f) => findings.push({ route: testRoute, role: 'Test', scope: 'comparison', ...f });
+
+        const deviation = Utils.calculateCrossTrackDeviation(testRoute, referenceRoute);
+        if (deviation && deviation.stats.mean !== null) {
+            const flagged = deviation.stats.mean > T.deviationMeanM || deviation.stats.p95 > T.deviationP95M;
+            push({
+                category: 'GPS Accuracy', metric: 'Cross-track deviation vs reference',
+                status: flagged ? 'FLAGGED' : 'OK',
+                value: `mean ${Math.round(deviation.stats.mean)}m, p95 ${Math.round(deviation.stats.p95)}m, max ${Math.round(deviation.stats.max)}m`,
+                reference: `mean <=${T.deviationMeanM}m, p95 <=${T.deviationP95M}m`,
+                detail: 'Perpendicular distance from the test track to the nearest segment of the reference track'
+            });
+        }
+
+        const driftData = Utils.calculateDistanceDrift(referenceRoute, [testRoute], 10, this.routeTimeOffsets, this.autoAlignOffsets);
+        if (driftData && driftData.drifts.length > 0) {
+            const last = driftData.drifts[driftData.drifts.length - 1];
+            const comp = last.comparisons.find(c => c.route === testRoute);
+            if (comp) {
+                const drift = Math.abs(comp.drift) < 1e-6 ? 0 : comp.drift;
+                const driftPct = last.referenceDistance > 0 ? (drift / last.referenceDistance) * 100 : 0;
+                push({
+                    category: 'Distance Drift', metric: 'Odometer drift at finish',
+                    status: Math.abs(driftPct) > T.distanceDriftPct ? 'FLAGGED' : 'OK',
+                    value: `${drift > 0 ? '+' : ''}${(drift * 1000).toFixed(0)}m (${driftPct >= 0 ? '+' : ''}${driftPct.toFixed(1)}%)`,
+                    reference: `+/-${T.distanceDriftPct}%`,
+                    detail: 'Test route distance minus reference route distance at matched elapsed time'
+                });
+            }
+        }
+
+        if (testRoute.heartRates?.some(h => h !== null) && referenceRoute.heartRates?.some(h => h !== null)) {
+            const hrComparison = Utils.calculateHrComparison(referenceRoute, testRoute, this.routeTimeOffsets);
+            if (hrComparison) {
+                push({
+                    category: 'HR Validation', metric: 'Mean absolute error vs reference',
+                    status: hrComparison.meanAbsoluteError > T.hrMaeBpm ? 'FLAGGED' : 'OK',
+                    value: `${hrComparison.meanAbsoluteError.toFixed(1)} bpm`,
+                    reference: `<=${T.hrMaeBpm} bpm`,
+                    detail: `Sampled at matched elapsed time across ${hrComparison.sampleCount} points`
+                });
+                push({
+                    category: 'HR Validation', metric: 'Bias vs reference',
+                    status: Math.abs(hrComparison.bias) > T.hrBiasBpm ? 'FLAGGED' : 'OK',
+                    value: `${hrComparison.bias >= 0 ? '+' : ''}${hrComparison.bias.toFixed(1)} bpm`,
+                    reference: `+/-${T.hrBiasBpm} bpm`,
+                    detail: 'Positive = test route reads high vs reference, negative = reads low'
+                });
+            }
+        }
+    }
+
+    renderFaultReportMarkdown(report) {
+        const { referenceRoute, testRoutes, findings, events, generatedAt } = report;
+        const esc = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+        const lines = [];
+
+        lines.push('# Garmin Fault Report');
+        lines.push(`Generated: ${generatedAt.toISOString()}`);
+        lines.push('');
+
+        const allEntries = [{ route: referenceRoute, role: 'Reference' }, ...testRoutes.map(r => ({ route: r, role: 'Test' }))];
+
+        lines.push('## Devices');
+        lines.push('| Role | Route | Product | Manufacturer | Firmware | Serial | File |');
+        lines.push('|---|---|---|---|---|---|---|');
+        allEntries.forEach(({ route, role }) => {
+            const d = route.device || {};
+            lines.push(`| ${role} | ${esc(route.displayName)} | ${esc(d.productName || 'Unknown')} | ${esc(d.manufacturer || 'Unknown')} | ${esc(d.firmwareVersion || 'N/A')} | ${esc(d.serialNumber || 'N/A')} | ${esc(route.filename)} |`);
+        });
+        lines.push('');
+
+        const flaggedCount = findings.filter(f => f.status === 'FLAGGED').length;
+        lines.push('## Summary');
+        lines.push(`- ${flaggedCount} of ${findings.length} checks flagged`);
+        lines.push(`- ${events.length} raw incident${events.length === 1 ? '' : 's'} logged (recording gaps, sensor dropouts, cadence-lock)`);
+        lines.push('');
+
+        const table = (rows) => {
+            if (rows.length === 0) return '_No applicable checks — required data not present for this route._\n';
+            const header = '| Status | Metric | Value | Reference/Threshold | Detail |\n|---|---|---|---|---|';
+            const body = rows.map(f => `| ${f.status} | ${esc(f.metric)} | ${esc(f.value)} | ${esc(f.reference)} | ${esc(f.detail)} |`).join('\n');
+            return `${header}\n${body}\n`;
+        };
+
+        testRoutes.forEach(testRoute => {
+            lines.push(`## ${testRoute.displayName} vs Reference (${referenceRoute.displayName})`);
+            lines.push(table(findings.filter(f => f.scope === 'comparison' && f.route === testRoute)));
+        });
+
+        allEntries.forEach(({ route, role }) => {
+            lines.push(`## Self-Check — ${route.displayName} (${role})`);
+            lines.push(table(findings.filter(f => f.scope === 'self' && f.route === route)));
+        });
+
+        if (events.length > 0) {
+            lines.push('## Raw Incident Log');
+            lines.push('| Route | Type | Location (km) | Timestamp | Detail |');
+            lines.push('|---|---|---|---|---|');
+            events.forEach(e => {
+                const loc = e.locationKm !== null && e.locationKm !== undefined ? e.locationKm.toFixed(2) : '—';
+                const ts = e.timestamp ? e.timestamp.toISOString() : '—';
+                lines.push(`| ${esc(e.route.displayName)} | ${esc(e.type)} | ${loc} | ${ts} | ${esc(e.detail)} |`);
+            });
+            lines.push('');
+        }
+
+        const T = FAULT_REPORT_THRESHOLDS;
+        lines.push('## Methodology');
+        lines.push('Thresholds below are conservative QA rules of thumb, not an official Garmin spec — tune them to your test protocol.');
+        lines.push('');
+        lines.push(`- GPS cross-track deviation: flagged if mean > ${T.deviationMeanM}m or p95 > ${T.deviationP95M}m vs the reference track.`);
+        lines.push(`- Distance drift: flagged if odometer reading differs from the reference by more than ${T.distanceDriftPct}% at finish.`);
+        lines.push(`- Session self-check: flagged if device-reported distance differs from the value recomputed from its own track by more than ${T.sessionDistancePct}%, ascent/descent by more than ${T.sessionElevM}m, or duration by more than ${T.sessionDurationSec}s.`);
+        lines.push(`- HR validation: flagged if mean absolute error > ${T.hrMaeBpm} bpm or bias > ${T.hrBiasBpm} bpm vs reference; cadence-lock flagged whenever HR tracks cadence within 5 bpm for 5+ consecutive points.`);
+        lines.push(`- Running dynamics: flagged if field coverage < ${T.dynamicsCoveragePct}% (only evaluated when the device records that field at all).`);
+        lines.push('- Dropout: flagged whenever any recording gap or sensor null-run is detected (see raw incident log for specifics).');
+
+        return lines.join('\n');
+    }
+
+    renderFaultReportCSV(report) {
+        const { findings, events } = report;
+        const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+        const header = ['Section', 'Route', 'Role', 'Category', 'Metric', 'Status', 'Value', 'Reference/Threshold', 'Detail', 'Location (km)', 'Timestamp'];
+        const rows = [header.map(esc).join(',')];
+
+        findings.forEach(f => {
+            rows.push([
+                'Check', f.route.displayName, f.role, f.category, f.metric, f.status, f.value, f.reference, f.detail, '', ''
+            ].map(esc).join(','));
+        });
+
+        events.forEach(e => {
+            rows.push([
+                'Incident', e.route.displayName, e.role, e.type, e.type, e.status, '', '', e.detail,
+                e.locationKm !== null && e.locationKm !== undefined ? e.locationKm.toFixed(3) : '',
+                e.timestamp ? e.timestamp.toISOString() : ''
+            ].map(esc).join(','));
+        });
+
+        return rows.join('\n');
+    }
+
+    downloadTextFile(filename, content, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+
     compareSegment() {
         const selectedRoutes = this.routes.filter(r => r.selected);
 
@@ -1948,16 +2283,7 @@ class RouteOverlayApp {
             ...rows.map(row => row.join(','))
         ].join('\n');
 
-        // Create and trigger download
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', `route-comparison-${new Date().toISOString().slice(0, 10)}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        this.downloadTextFile(`route-comparison-${new Date().toISOString().slice(0, 10)}.csv`, csvContent, 'text/csv;charset=utf-8;');
     }
 }
 
@@ -2077,6 +2403,10 @@ window.stopRace = function() {
 
 window.exportComparisonCSV = function() {
     if (app) app.exportComparisonCSV();
+};
+
+window.generateFaultReport = function() {
+    if (app) app.generateFaultReport();
 };
 
 // Load Google Maps API
