@@ -55,7 +55,8 @@ export class MapManager {
 
         const select = document.createElement('select');
         select.className = 'wayback-select';
-        select.innerHTML = '<option value="">Satellite: Current</option>';
+        const currentYear = new Date().getFullYear();
+        select.innerHTML = `<option value="">${currentYear}</option>`;
         select.addEventListener('change', () => this.setWaybackYear(select.value));
 
         container.appendChild(select);
@@ -83,7 +84,8 @@ export class MapManager {
                 this.waybackSnapshots[year] = tileId;
                 const opt = document.createElement('option');
                 opt.value = year;
-                opt.textContent = `Satellite: ${year}`;
+                if (year === currentYear) continue;
+                opt.textContent = year;
                 select.appendChild(opt);
             }
         } catch (e) {
