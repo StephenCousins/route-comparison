@@ -27,10 +27,15 @@ const DARK_MAP_STYLE = [
 export class MapManager {
     constructor(mapElement) {
         const theme = document.documentElement.getAttribute('data-theme');
+        const isMobile = window.matchMedia('(max-width: 768px)').matches;
         this.map = new google.maps.Map(mapElement, {
             center: { lat: 40, lng: -100 },
             zoom: 4,
             mapTypeControl: true,
+            mapTypeControlOptions: isMobile
+                ? { style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
+                    position: google.maps.ControlPosition.LEFT_BOTTOM }
+                : {},
             streetViewControl: false,
             styles: theme === 'dark' ? DARK_MAP_STYLE : []
         });

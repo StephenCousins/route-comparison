@@ -620,12 +620,17 @@ class RouteOverlayApp {
     setupSidebarToggle() {
         const sidebar = document.getElementById('sidebar');
         const toggle = document.getElementById('sidebarToggle');
-        this.isMobile = window.innerWidth <= 768;
+        const mq = window.matchMedia('(max-width: 768px)');
+        this.isMobile = mq.matches;
         if (this.isMobile) {
             sidebar.classList.add('collapsed');
         }
         this.updateToggleLabel(toggle, sidebar);
         toggle.addEventListener('click', () => this.toggleSidebar());
+        mq.addEventListener('change', (e) => {
+            this.isMobile = e.matches;
+            this.updateToggleLabel(toggle, sidebar);
+        });
     }
 
     updateToggleLabel(toggle, sidebar) {

@@ -2112,50 +2112,74 @@ tr:hover {
    Responsive — phones/tablets (<=768px). Desktop is unaffected.
    ============================================================ */
 @media (max-width: 768px) {
-    #header h1 { font-size: 16px; }
-    #signInBtn { padding: 6px 10px; font-size: 13px; }
+    body { height: 100dvh; }
 
-    /* Sidebar becomes a full-height overlay, collapsed by default on mobile
-       so the map is immediately visible. */
+    /* Compact single-line header */
+    #header { padding: 8px 12px; }
+    .header-content { gap: 10px; }
+    #header h1 {
+        font-size: 15px;
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    #authContainer { gap: 8px; flex-shrink: 0; }
+    #signInBtn { padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+    #userName { display: none; }
+
+    /* Sidebar: full-width sheet over the map */
     #sidebar {
         position: absolute;
         top: 0;
         bottom: 0;
-        width: 85%;
-        max-width: 320px;
-        z-index: 100;
-        box-shadow: 2px 0 12px rgba(0,0,0,0.2);
+        width: 100%;
+        max-width: none;
+        border-right: none;
+        z-index: 300;
     }
-    #sidebar.collapsed {
-        margin-left: -85vw;
-    }
+    #sidebar.collapsed { margin-left: -100vw; }
+
+    /* Open: toggle becomes a Close button inside the sheet header */
     #sidebarToggle {
-        position: fixed;
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        left: auto;
         width: auto;
-        height: 44px;
+        height: 36px;
         padding: 0 14px;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
-        top: 120px;
-        left: 8px;
-        right: auto;
-        box-shadow: 2px 2px 8px rgba(0,0,0,0.3);
         border-radius: 8px;
-        z-index: 200;
+        box-shadow: none;
+        z-index: 301;
+    }
+    /* Closed: floating "Routes" pill below the header */
+    #sidebar.collapsed #sidebarToggle {
+        position: fixed;
+        top: 56px;
+        left: 12px;
+        right: auto;
+        height: 44px;
+        border-radius: 999px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.35);
     }
 
-    /* Comparison panel: compact on mobile so the map stays visible. */
-    #comparisonPanel { max-height: 40vh; left: 0; }
+    /* Comparison panel: compact so the map stays visible */
+    #comparisonPanel {
+        left: 0;
+        max-height: 45vh;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
     .comparison-header {
         flex-direction: column;
         align-items: stretch;
         gap: 10px;
+        padding: 10px 12px;
     }
-    .comparison-actions {
-        gap: 10px;
-        overflow-x: auto;
-        padding-bottom: 4px;
-    }
+    .comparison-actions { gap: 8px; }
     .cmp-group--actions { margin-left: 0; }
 
     /* Touch targets — nothing below ~40px. */
@@ -2165,9 +2189,7 @@ tr:hover {
     .session-share-btn,
     .session-delete-btn,
     #stopPlaybackBtn,
-    .chart-control-btn {
-        min-height: 40px;
-    }
+    .chart-control-btn { min-height: 40px; }
     .cmp-btn--icon { min-width: 40px; }
 
     /* Modals fill the screen with tighter padding. */
