@@ -2115,7 +2115,8 @@ tr:hover {
     #header h1 { font-size: 16px; }
     #signInBtn { padding: 6px 10px; font-size: 13px; }
 
-    /* Sidebar becomes a full-height overlay so the map gets the full width. */
+    /* Sidebar becomes a full-height overlay, collapsed by default on mobile
+       so the map is immediately visible. */
     #sidebar {
         position: absolute;
         top: 0;
@@ -2124,6 +2125,16 @@ tr:hover {
         max-width: 320px;
         z-index: 100;
         box-shadow: 2px 0 12px rgba(0,0,0,0.2);
+    }
+    #sidebar.collapsed {
+        margin-left: -85vw;
+    }
+    #sidebarToggle {
+        width: 44px;
+        height: 44px;
+        font-size: 20px;
+        top: 12px;
+        box-shadow: 2px 2px 8px rgba(0,0,0,0.3);
     }
 
     /* Comparison panel: taller sheet, header stacks, actions scroll across. */

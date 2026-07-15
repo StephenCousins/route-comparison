@@ -616,7 +616,13 @@ class RouteOverlayApp {
     }
 
     setupSidebarToggle() {
-        document.getElementById('sidebarToggle').addEventListener('click', () => this.toggleSidebar());
+        const sidebar = document.getElementById('sidebar');
+        const toggle = document.getElementById('sidebarToggle');
+        if (window.innerWidth <= 768) {
+            sidebar.classList.add('collapsed');
+            toggle.textContent = '>';
+        }
+        toggle.addEventListener('click', () => this.toggleSidebar());
     }
 
     toggleSidebar() {
