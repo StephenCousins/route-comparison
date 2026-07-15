@@ -2130,15 +2130,18 @@ tr:hover {
         margin-left: -85vw;
     }
     #sidebarToggle {
-        width: 44px;
+        width: auto;
         height: 44px;
-        font-size: 20px;
+        padding: 0 14px;
+        font-size: 14px;
+        font-weight: 600;
         top: 12px;
         box-shadow: 2px 2px 8px rgba(0,0,0,0.3);
+        border-radius: 0 8px 8px 0;
     }
 
-    /* Comparison panel: taller sheet, header stacks, actions scroll across. */
-    #comparisonPanel { max-height: 75vh; left: 0; }
+    /* Comparison panel: compact on mobile so the map stays visible. */
+    #comparisonPanel { max-height: 40vh; left: 0; }
     .comparison-header {
         flex-direction: column;
         align-items: stretch;

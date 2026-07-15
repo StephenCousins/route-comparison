@@ -5,20 +5,34 @@ import { showToast } from './toast.js';
 let firebaseApp, auth, db, storage;
 let firebaseInitialized = false;
 
+let sharedSessionPromise = null;
+
 export function initializeFirebase() {
     try {
         firebaseApp = firebase.initializeApp(config.firebase);
         auth = firebase.auth();
         db = firebase.firestore();
+        db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
         storage = firebase.storage();
         firebaseInitialized = true;
         console.log('Firebase initialized successfully');
+
+        const params = new URLSearchParams(window.location.search);
+        const sharedId = params.get('s');
+        if (sharedId) {
+            sharedSessionPromise = db.collection('shared').doc(sharedId).get();
+        }
+
         return true;
     } catch (error) {
         console.warn('Firebase initialization failed:', error.message);
         console.log('App will work without cloud sync features');
         return false;
     }
+}
+
+export function getPrefetchedSharedSession() {
+    return sharedSessionPromise;
 }
 
 export function isFirebaseInitialized() {
@@ -307,7 +321,11 @@ export class FirebaseStorageManager {
         if (!firebaseInitialized) return null;
 
         try {
-            const doc = await db.collection('shared').doc(sharedId).get();
+            const prefetched = sharedSessionPromise;
+            sharedSessionPromise = null;
+            const doc = prefetched
+                ? await prefetched
+                : await db.collection('shared').doc(sharedId).get();
             if (doc.exists) {
                 console.log('Shared session loaded:', sharedId);
                 return doc.data();
@@ -315,6 +333,9 @@ export class FirebaseStorageManager {
             return null;
         } catch (error) {
             console.error('Load shared session error:', error);
+            if (error.code === 'permission-denied') {
+                showToast('Shared session access denied — Firestore rules may need updating', 'error', 6000);
+            }
             return null;
         }
     }

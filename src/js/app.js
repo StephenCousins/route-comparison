@@ -75,7 +75,9 @@ class RouteOverlayApp {
         const sharedId = params.get('s');
         if (!sharedId) return;
 
+        showToast('Loading shared session…', 'info', 30000);
         const session = await this.storageManager.loadSharedSession(sharedId);
+        document.querySelector('.toast')?.remove();
         if (!session) {
             showToast('Shared session not found', 'error');
             return;
@@ -618,11 +620,19 @@ class RouteOverlayApp {
     setupSidebarToggle() {
         const sidebar = document.getElementById('sidebar');
         const toggle = document.getElementById('sidebarToggle');
-        if (window.innerWidth <= 768) {
+        this.isMobile = window.innerWidth <= 768;
+        if (this.isMobile) {
             sidebar.classList.add('collapsed');
-            toggle.textContent = '>';
         }
+        this.updateToggleLabel(toggle, sidebar);
         toggle.addEventListener('click', () => this.toggleSidebar());
+    }
+
+    updateToggleLabel(toggle, sidebar) {
+        const collapsed = sidebar.classList.contains('collapsed');
+        toggle.textContent = this.isMobile
+            ? (collapsed ? 'Routes' : 'Close')
+            : (collapsed ? '>' : '<');
     }
 
     toggleSidebar() {
@@ -630,7 +640,7 @@ class RouteOverlayApp {
         const toggle = document.getElementById('sidebarToggle');
 
         sidebar.classList.toggle('collapsed');
-        toggle.textContent = sidebar.classList.contains('collapsed') ? '>' : '<';
+        this.updateToggleLabel(toggle, sidebar);
 
         setTimeout(() => {
             google.maps.event.trigger(this.mapManager.map, 'resize');
