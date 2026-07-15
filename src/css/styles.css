@@ -601,6 +601,8 @@ body {
 }
 .wayback-control {
     margin: 10px;
+    display: flex;
+    gap: 6px;
 }
 .wayback-select {
     padding: 6px 10px;

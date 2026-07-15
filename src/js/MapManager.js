@@ -27,15 +27,11 @@ const DARK_MAP_STYLE = [
 export class MapManager {
     constructor(mapElement) {
         const theme = document.documentElement.getAttribute('data-theme');
-        const isMobile = window.matchMedia('(max-width: 768px)').matches;
+        this.isMobile = window.matchMedia('(max-width: 768px)').matches;
         this.map = new google.maps.Map(mapElement, {
             center: { lat: 40, lng: -100 },
             zoom: 4,
-            mapTypeControl: true,
-            mapTypeControlOptions: isMobile
-                ? { style: google.maps.MapTypeControlStyle.DROPDOWN_MENU,
-                    position: google.maps.ControlPosition.LEFT_BOTTOM }
-                : {},
+            mapTypeControl: !this.isMobile,
             streetViewControl: false,
             styles: theme === 'dark' ? DARK_MAP_STYLE : []
         });
@@ -48,6 +44,14 @@ export class MapManager {
     async setupWaybackControl() {
         const container = document.createElement('div');
         container.className = 'wayback-control';
+
+        if (this.isMobile) {
+            const mapTypeSelect = document.createElement('select');
+            mapTypeSelect.className = 'wayback-select';
+            mapTypeSelect.innerHTML = '<option value="roadmap">Map</option><option value="satellite">Satellite</option>';
+            mapTypeSelect.addEventListener('change', () => this.map.setMapTypeId(mapTypeSelect.value));
+            container.appendChild(mapTypeSelect);
+        }
 
         const select = document.createElement('select');
         select.className = 'wayback-select';
