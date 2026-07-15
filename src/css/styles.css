@@ -2130,16 +2130,18 @@ tr:hover {
         margin-left: -85vw;
     }
     #sidebarToggle {
+        position: fixed;
         width: auto;
         height: 44px;
         padding: 0 14px;
         font-size: 14px;
         font-weight: 600;
-        top: 12px;
+        top: 60px;
+        left: 8px;
         right: auto;
-        left: 100%;
         box-shadow: 2px 2px 8px rgba(0,0,0,0.3);
-        border-radius: 0 8px 8px 0;
+        border-radius: 8px;
+        z-index: 200;
     }
 
     /* Comparison panel: compact on mobile so the map stays visible. */
