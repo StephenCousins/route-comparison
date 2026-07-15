@@ -35,6 +35,71 @@ export class MapManager {
             styles: theme === 'dark' ? DARK_MAP_STYLE : []
         });
         this.tooltip = document.getElementById('routeTooltip');
+        this.waybackOverlay = null;
+        this.waybackSnapshots = null;
+        this.setupWaybackControl();
+    }
+
+    async setupWaybackControl() {
+        const container = document.createElement('div');
+        container.className = 'wayback-control';
+
+        const select = document.createElement('select');
+        select.className = 'wayback-select';
+        select.innerHTML = '<option value="">Satellite: Current</option>';
+        select.addEventListener('change', () => this.setWaybackYear(select.value));
+
+        container.appendChild(select);
+        this.map.controls[google.maps.ControlPosition.TOP_RIGHT].push(container);
+
+        try {
+            const res = await fetch('https://s3-us-west-2.amazonaws.com/config.maptiles.arcgis.com/waybackconfig.json');
+            const config = await res.json();
+
+            const byYear = {};
+            for (const [tileId, entry] of Object.entries(config)) {
+                const match = entry.itemTitle?.match(/(\d{4})-(\d{2})-(\d{2})/);
+                if (!match) continue;
+                const year = parseInt(match[1]);
+                const date = match[0];
+                if (!byYear[year] || date > byYear[year].date) {
+                    byYear[year] = { tileId, date };
+                }
+            }
+
+            this.waybackSnapshots = {};
+            const years = Object.keys(byYear).map(Number).sort((a, b) => b - a);
+            for (const year of years) {
+                const { tileId, date } = byYear[year];
+                this.waybackSnapshots[year] = tileId;
+                const opt = document.createElement('option');
+                opt.value = year;
+                opt.textContent = `Satellite: ${year}`;
+                select.appendChild(opt);
+            }
+        } catch (e) {
+            console.warn('Failed to load Wayback imagery config:', e);
+        }
+    }
+
+    setWaybackYear(year) {
+        if (this.waybackOverlay) {
+            this.map.overlayMapTypes.clear();
+            this.waybackOverlay = null;
+        }
+
+        if (!year || !this.waybackSnapshots?.[year]) return;
+
+        const tileId = this.waybackSnapshots[year];
+        this.waybackOverlay = new google.maps.ImageMapType({
+            getTileUrl: (coord, zoom) =>
+                `https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/${tileId}/${zoom}/${coord.y}/${coord.x}`,
+            tileSize: new google.maps.Size(256, 256),
+            maxZoom: 23,
+            name: `Wayback ${year}`
+        });
+        this.map.setMapTypeId('satellite');
+        this.map.overlayMapTypes.insertAt(0, this.waybackOverlay);
     }
 
     // Called by window.toggleTheme() so the basemap follows the app theme

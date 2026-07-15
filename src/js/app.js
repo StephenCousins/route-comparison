@@ -70,6 +70,21 @@ class RouteOverlayApp {
         this.setupComparisonMenubar();
     }
 
+    async checkForSharedSession() {
+        const params = new URLSearchParams(window.location.search);
+        const sharedId = params.get('s');
+        if (!sharedId) return;
+
+        const session = await this.storageManager.loadSharedSession(sharedId);
+        if (!session) {
+            showToast('Shared session not found', 'error');
+            return;
+        }
+
+        window.history.replaceState({}, '', window.location.pathname);
+        await this.loadSessionData(session);
+    }
+
     // Collapses the Charts/Analyse/Validate button groups into popover
     // menus. Deliberately a DOM transform rather than hand-authored markup:
     // every button keeps its original element, classes, and onclick
@@ -193,6 +208,7 @@ class RouteOverlayApp {
     initMap() {
         this.mapManager = new MapManager(document.getElementById('map'));
         this.animationManager = new AnimationManager(this.mapManager);
+        this.checkForSharedSession();
     }
 
     setupAuthUI() {
@@ -288,6 +304,14 @@ class RouteOverlayApp {
             loadBtn.textContent = 'Load';
             loadBtn.onclick = () => this.loadSession(session.id);
 
+            const shareBtn = document.createElement('button');
+            shareBtn.className = 'session-share-btn';
+            shareBtn.textContent = 'Share';
+            shareBtn.onclick = async (e) => {
+                e.stopPropagation();
+                await this.shareSession(session.id);
+            };
+
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'session-delete-btn';
             deleteBtn.textContent = 'Delete';
@@ -300,6 +324,7 @@ class RouteOverlayApp {
             };
 
             actions.appendChild(loadBtn);
+            actions.appendChild(shareBtn);
             actions.appendChild(deleteBtn);
             item.appendChild(info);
             item.appendChild(actions);
@@ -358,9 +383,27 @@ class RouteOverlayApp {
         }
     }
 
+    async shareSession(sessionId) {
+        const sharedId = await this.storageManager.shareSession(sessionId);
+        if (!sharedId) {
+            showToast('Failed to create share link', 'error');
+            return;
+        }
+
+        const url = new URL(window.location.href);
+        url.search = '';
+        url.searchParams.set('s', sharedId);
+        const shareUrl = url.toString();
+
+        try {
+            await navigator.clipboard.writeText(shareUrl);
+            showToast('Share link copied to clipboard', 'success');
+        } catch {
+            prompt('Copy this share link:', shareUrl);
+        }
+    }
+
     async loadSession(sessionId) {
-        // Loading replaces whatever is on the map — confirm if that would discard
-        // routes the user is currently working with.
         if (this.routes.length > 0 &&
             !confirm('Load this session? Your current routes will be replaced.')) {
             return;
@@ -372,18 +415,18 @@ class RouteOverlayApp {
             return;
         }
 
-        // Clear existing routes
+        await this.loadSessionData(session);
+        this.closeSessionsModal();
+    }
+
+    async loadSessionData(session) {
         this.routes.forEach(route => route.destroy());
         this.routes = [];
         this.colorIndex = 0;
-        // Alignment state is keyed by filename, not route identity — a loaded
-        // session with a same-named file (common with generic FIT filenames)
-        // would otherwise silently inherit an unrelated route's offsets.
         this.autoAlignOffsets = {};
         this.routeTimeOffsets = {};
         this.autoAlignConfidence = {};
 
-        // Load routes from session
         for (const routeData of session.routes) {
             const route = new Route({
                 filename: routeData.fileName || 'Loaded Route',
@@ -423,11 +466,6 @@ class RouteOverlayApp {
                 onClick: (r) => this.handleRouteClick(r)
             });
 
-            // Debug logging — lets you tell from the console whether a loaded
-            // session actually has running-dynamics/session-summary data, or
-            // whether it was saved before that data existed to capture (in
-            // which case re-saving after re-uploading the source file is the
-            // only fix, there's nothing to recover from an old saved session).
             const hasAnyDynamics = ['verticalOscillations', 'groundContactTimes', 'verticalRatios', 'groundContactBalances', 'stepLengths']
                 .some(field => (route[field] || []).some(v => v !== null && v !== undefined));
             console.log(`Loaded route "${route.displayName}": running dynamics data = ${hasAnyDynamics}, session summary = ${!!route.sessionSummary}`);
@@ -440,7 +478,6 @@ class RouteOverlayApp {
         this.comparisonDismissed = false;
         this.updateUI();
         this.updateComparison();
-        this.closeSessionsModal();
     }
 
     setupDropZones() {

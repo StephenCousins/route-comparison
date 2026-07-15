@@ -271,4 +271,51 @@ export class FirebaseStorageManager {
             return false;
         }
     }
+
+    async shareSession(sessionId) {
+        if (!firebaseInitialized || !this.userId) {
+            return null;
+        }
+
+        try {
+            const sessionDoc = await db.collection('users')
+                .doc(this.userId)
+                .collection('sessions')
+                .doc(sessionId)
+                .get();
+
+            if (!sessionDoc.exists) return null;
+
+            const data = sessionDoc.data();
+            const sharedRef = await db.collection('shared').add({
+                routes: data.routes,
+                routeCount: data.routeCount,
+                createdAt: data.createdAt,
+                sharedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                sharedBy: this.userId
+            });
+
+            console.log('Session shared:', sharedRef.id);
+            return sharedRef.id;
+        } catch (error) {
+            console.error('Share error:', error);
+            return null;
+        }
+    }
+
+    async loadSharedSession(sharedId) {
+        if (!firebaseInitialized) return null;
+
+        try {
+            const doc = await db.collection('shared').doc(sharedId).get();
+            if (doc.exists) {
+                console.log('Shared session loaded:', sharedId);
+                return doc.data();
+            }
+            return null;
+        } catch (error) {
+            console.error('Load shared session error:', error);
+            return null;
+        }
+    }
 }
