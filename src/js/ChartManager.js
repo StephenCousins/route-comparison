@@ -23,6 +23,9 @@ export class ChartManager {
         this.smoothingLevel = 0; // 0 = default adaptive, higher = more smoothing
         this.rangeMode = false;
         this.rangeSelection = null; // { startDist, endDist }
+        this.showZeros = false;
+        this.showDualElev = true;
+        this.paceMode = false; // when true, speed chart shows pace instead
 
         // Initialize shared event handler for zoom/crosshair
         this.eventHandler = new ChartEventHandler({
@@ -86,6 +89,18 @@ export class ChartManager {
             document.getElementById('smoothValue').textContent = this.smoothingLevel;
             this.redrawChart();
         });
+        document.getElementById('showZerosCheckbox').addEventListener('change', (e) => {
+            this.showZeros = e.target.checked;
+            this.redrawChart();
+        });
+        document.getElementById('dualElevCheckbox').addEventListener('change', (e) => {
+            this.showDualElev = e.target.checked;
+            this.redrawChart();
+        });
+        document.getElementById('paceCheckbox').addEventListener('change', (e) => {
+            this.paceMode = e.target.checked;
+            this.redrawChart();
+        });
 
         this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
         this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
@@ -104,6 +119,14 @@ export class ChartManager {
         this.initialOffsets = { ...initialOffsets };
         this.routeOffsets = { ...initialOffsets };
         document.getElementById('resetOffsetsBtn').disabled = Object.keys(this.routeOffsets).length === 0;
+
+        const showZerosEl = document.getElementById('showZerosToggle');
+        const dualElevEl = document.getElementById('dualElevToggle');
+        const paceEl = document.getElementById('paceToggle');
+        showZerosEl.style.display = metricType === 'heartrate' ? '' : 'none';
+        dualElevEl.style.display = (metricType === 'elevation' && routes.some(r => r.gpsElevations && r.gpsElevations.length > 0)) ? '' : 'none';
+        paceEl.style.display = (metricType === 'speed' || metricType === 'pace') ? '' : 'none';
+
         this.drawChart(routes, metricType, yAxisLabel, formatValue);
     }
 
@@ -124,6 +147,12 @@ export class ChartManager {
 
         document.getElementById('resetZoomBtn').disabled = true;
         document.getElementById('resetOffsetsBtn').disabled = true;
+        const titleEl = document.getElementById('modalTitle');
+        titleEl.style.cursor = '';
+        titleEl.onclick = null;
+        this._devFieldIndex = 0;
+        this._devFieldDefs = null;
+        this._devFieldRoutes = null;
         document.getElementById('dragModeBtn').classList.remove('active');
         document.getElementById('dragModeBtn').textContent = 'Drag to Align';
         document.getElementById('rangeModeBtn').classList.remove('active');
@@ -287,6 +316,16 @@ export class ChartManager {
     drawChart(routes, metricType, yAxisLabel, formatValue) {
         this.currentData = { routes, metricType, yAxisLabel, formatValue, processedRoutes: [] };
 
+        if ((metricType === 'speed' || metricType === 'pace') && this.paceMode) {
+            yAxisLabel = 'Pace (min/km)';
+            formatValue = v => Utils.formatPace(v);
+        } else if ((metricType === 'speed' || metricType === 'pace') && !this.paceMode) {
+            yAxisLabel = 'Speed (km/h)';
+            formatValue = v => v.toFixed(1) + ' km/h';
+        }
+        const effectiveMetricType = (metricType === 'speed' || metricType === 'pace')
+            ? (this.paceMode ? 'pace' : 'speed') : metricType;
+
         this.canvas.width = this.canvas.offsetWidth;
         this.canvas.height = this.canvas.offsetHeight;
 
@@ -302,7 +341,7 @@ export class ChartManager {
             }
 
             let metricData = [];
-            switch(metricType) {
+            switch(effectiveMetricType) {
                 case 'elevation': metricData = route.elevations; break;
                 case 'speed': metricData = route.speeds; break;
                 case 'pace': metricData = route.paces; break;
@@ -311,6 +350,11 @@ export class ChartManager {
                 case 'power': metricData = route.powers; break;
                 case 'gpsaccuracy': metricData = route.gpsAccuracies; break;
                 case 'battery': metricData = route.batteryLevels; break;
+                case 'temperature': metricData = route.temperatures; break;
+            }
+
+            if (effectiveMetricType === 'heartrate' && !this.showZeros) {
+                metricData = metricData.map(v => (v === 0 ? null : v));
             }
 
             const totalDist = distances[distances.length - 1];
@@ -368,7 +412,7 @@ export class ChartManager {
         // backwards: slower splits would appear to "climb". Flip the axis so
         // faster (numerically lower) pace sits at the top, matching how
         // Speed/Power/etc already put "more" at the top.
-        const invertY = metricType === 'pace';
+        const invertY = effectiveMetricType === 'pace';
         const valueToY = (value) => invertY
             ? padding.top + ((value - globalMin) / adjustedRange) * chartHeight
             : padding.top + chartHeight - ((value - globalMin) / adjustedRange) * chartHeight;
@@ -456,6 +500,39 @@ export class ChartManager {
             }
             this.ctx.stroke();
             this.ctx.globalAlpha = 1.0;
+
+            if (effectiveMetricType === 'elevation' && this.showDualElev && route.gpsElevations && route.gpsElevations.length > 0) {
+                const gpsSmoothed = Utils.smoothData(route.gpsElevations, Math.round(Utils.getAdaptiveSmoothingParams(route.totalDistance).windowSize * (1 + this.smoothingLevel * 0.5)));
+                const { data: gpsData, distances: gpsDists } = Utils.decimateData(gpsSmoothed, (() => {
+                    const d = [0];
+                    for (let i = 1; i < route.coordinates.length; i++) d.push(d[i-1] + Utils.haversineDistance(route.coordinates[i-1], route.coordinates[i]));
+                    return d;
+                })(), Utils.getAdaptiveSmoothingParams(route.totalDistance).decimationFactor);
+                const offset = this.routeOffsets[route.filename] || 0;
+
+                this.ctx.strokeStyle = route.color;
+                this.ctx.lineWidth = 1;
+                this.ctx.globalAlpha = 0.5;
+                this.ctx.setLineDash([4, 4]);
+                this.ctx.beginPath();
+                let gpsFirst = true;
+                for (let i = 0; i < gpsData.length; i++) {
+                    if (gpsData[i] !== null) {
+                        let dist = gpsDists[i] + offset;
+                        if (this.zoomState) {
+                            if (dist < this.zoomState.minDistance || dist > this.zoomState.maxDistance) continue;
+                            dist -= this.zoomState.minDistance;
+                        }
+                        const x = padding.left + (dist / maxDistance) * chartWidth;
+                        const y = valueToY(gpsData[i]);
+                        if (gpsFirst) { this.ctx.moveTo(x, y); gpsFirst = false; }
+                        else this.ctx.lineTo(x, y);
+                    }
+                }
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+                this.ctx.globalAlpha = 1.0;
+            }
         });
 
         // Draw axes
@@ -894,6 +971,37 @@ export class ChartManager {
         });
 
         this.eventHandler.saveCanvasState();
+    }
+
+    showDevFields(routes, fieldDefs, initialOffsets = {}) {
+        if (!this._devFieldIndex) this._devFieldIndex = 0;
+        if (this._devFieldIndex >= fieldDefs.length) this._devFieldIndex = 0;
+        this._devFieldDefs = fieldDefs;
+        this._devFieldRoutes = routes;
+
+        const def = fieldDefs[this._devFieldIndex];
+        const tempRoutes = routes.map(r => ({
+            ...r,
+            elevations: r[def.key] || []
+        }));
+
+        document.getElementById('modalTitle').textContent = `${def.name} (${this._devFieldIndex + 1}/${fieldDefs.length}) — click title to cycle`;
+        this.modal.classList.add('show');
+        this.initialOffsets = { ...initialOffsets };
+        this.routeOffsets = { ...initialOffsets };
+
+        document.getElementById('showZerosToggle').style.display = 'none';
+        document.getElementById('dualElevToggle').style.display = 'none';
+        document.getElementById('paceToggle').style.display = 'none';
+
+        const titleEl = document.getElementById('modalTitle');
+        titleEl.style.cursor = 'pointer';
+        titleEl.onclick = () => {
+            this._devFieldIndex = (this._devFieldIndex + 1) % fieldDefs.length;
+            this.showDevFields(routes, fieldDefs, initialOffsets);
+        };
+
+        this.drawChart(tempRoutes, 'elevation', def.label, def.format);
     }
 
     toggleRangeMode() {

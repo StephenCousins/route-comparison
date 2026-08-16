@@ -101,6 +101,7 @@
                     <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="heartrate" onclick="compareMetric('heartrate')">Heart Rate</button>
                     <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="cadence" onclick="compareMetric('cadence')">Cadence</button>
                     <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="power" onclick="compareMetric('power')">Power</button>
+                    <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="temperature" title="Device temperature sensor over the activity. FIT-only" onclick="compareMetric('temperature')">Temp</button>
                     <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="gpsaccuracy" title="Needs FIT files with recorded GPS accuracy data — not available from GPX" onclick="compareMetric('gpsaccuracy')">GPS Accuracy</button>
                     <button class="cmp-btn cmp-btn--metric comparison-elevation-btn" data-metric="battery" title="Watch battery consumption over the activity. Needs FIT files — not available from GPX" onclick="compareMetric('battery')">Battery</button>
                 </div>
@@ -113,6 +114,7 @@
                     <button class="cmp-btn cmp-btn--analyse comparison-drift-btn" data-metric="drift" title="Whether a device's odometer reads long or short over time vs the reference route. Needs 2+ routes with recorded time" onclick="compareDistanceDrift()">Distance Drift</button>
                     <button class="cmp-btn cmp-btn--analyse comparison-autoalign-btn" data-metric="autoalign" title="Automatically aligns routes for Time Gap/Race/charts and shows the result as a notification — doesn't open a panel. Needs 2+ selected routes" onclick="autoAlign()">Auto-Align</button>
                     <button class="cmp-btn cmp-btn--analyse comparison-meanmax-btn" data-metric="meanmax" title="Best average power across all duration windows — the power-duration curve. Needs 1+ selected route with power data" onclick="compareMeanMaxPower()">Power Curve</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-devfields-btn" data-metric="devfields" title="Chart running dynamics and other per-record fields (vertical oscillation, ground contact time, etc.). FIT-only" onclick="compareDevFields()">Dev Fields</button>
                 </div>
                 <div class="cmp-group" role="group" aria-label="Validate">
                     <span class="cmp-group-label">Validate</span>
@@ -146,6 +148,15 @@
                 <button id="rangeModeBtn" class="chart-control-btn">Range Stats</button>
                 <button id="resetZoomBtn" class="chart-control-btn" disabled>Reset Zoom</button>
                 <button id="resetOffsetsBtn" class="chart-control-btn" disabled>Reset Offsets</button>
+                <label class="chart-control-toggle" id="showZerosToggle" style="display:none;" title="Show zero values in the data (e.g. optical HR dropouts)">
+                    <input type="checkbox" id="showZerosCheckbox"> Show Zeros
+                </label>
+                <label class="chart-control-toggle" id="dualElevToggle" style="display:none;" title="Show GPS altitude alongside barometric altitude">
+                    <input type="checkbox" id="dualElevCheckbox" checked> GPS Alt
+                </label>
+                <label class="chart-control-toggle" id="paceToggle" style="display:none;" title="Switch between speed and pace on this chart">
+                    <input type="checkbox" id="paceCheckbox"> Pace
+                </label>
                 <label class="chart-control-slider" title="Extra data smoothing — 0 keeps the default, higher values apply heavier rolling average">
                     Smooth
                     <input type="range" id="smoothSlider" min="0" max="10" value="0">
@@ -323,10 +334,27 @@
         <div class="sessions-modal-content">
             <div class="sessions-modal-header">
                 <h2>Saved Sessions</h2>
+                <input type="text" id="sessionSearchInput" placeholder="Search sessions..." class="session-search">
                 <button class="modal-close" id="closeSessionsModal">Close</button>
             </div>
             <div id="savedSessionsList"></div>
-            <p id="sessionsEmptyState" class="hidden">No saved sessions yet. Load some routes and hit “Save Session”.</p>
+            <p id="sessionsEmptyState" class="hidden">No saved sessions yet. Load some routes and hit "Save Session".</p>
+        </div>
+    </div>
+
+    <!-- Save Session Modal -->
+    <div id="saveSessionModal" role="dialog" aria-modal="true" style="display:none;">
+        <div class="sessions-modal-content" style="max-width:460px;">
+            <div class="sessions-modal-header">
+                <h2>Save Session</h2>
+                <button class="modal-close" id="closeSaveSessionModal">Close</button>
+            </div>
+            <div class="save-session-form">
+                <label>Name <input type="text" id="sessionNameInput" placeholder="e.g. Fenix 7 vs FR965 Brighton"></label>
+                <label>Tags <input type="text" id="sessionTagsInput" placeholder="e.g. gps-test, fenix, brighton"></label>
+                <label>Notes <textarea id="sessionNotesInput" rows="3" placeholder="Optional notes about this session"></textarea></label>
+                <button id="confirmSaveSessionBtn" class="session-load-btn">Save</button>
+            </div>
         </div>
     </div>
 

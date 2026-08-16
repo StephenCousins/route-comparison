@@ -561,9 +561,10 @@ export class FileParser {
 
                 const coordinates = [], elevations = [], timestamps = [];
                 const heartRates = [], cadences = [], powers = [], speeds = [], paces = [];
-                const gpsAccuracies = [];
+                const gpsAccuracies = [], temperatures = [];
                 const verticalOscillations = [], groundContactTimes = [], verticalRatios = [];
                 const groundContactBalances = [], stepLengths = [], absolutePressures = [];
+                const gpsElevations = [];
 
                 records.forEach(record => {
                     if (record.position_lat !== undefined && record.position_long !== undefined) {
@@ -573,8 +574,10 @@ export class FileParser {
                         if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
                             coordinates.push({ lat, lng });
                             elevations.push(record.enhanced_altitude ?? record.altitude ?? null);
+                            gpsElevations.push(record.altitude ?? null);
                             timestamps.push(record.timestamp ? new Date(record.timestamp) : null);
                             heartRates.push(record.heart_rate ?? null);
+                            temperatures.push(record.temperature ?? null);
                             cadences.push(record.cadence !== null && record.cadence !== undefined ? record.cadence * 2 : null);
                             powers.push(record.power ?? null);
                             gpsAccuracies.push(record.gps_accuracy ?? null);
@@ -635,7 +638,8 @@ export class FileParser {
                         gpsAccuracies, device, sessionSummary,
                         verticalOscillations, groundContactTimes, verticalRatios,
                         groundContactBalances, stepLengths, absolutePressures,
-                        batteryLevels, hrZoneBoundaries, powerZoneBoundaries
+                        batteryLevels, hrZoneBoundaries, powerZoneBoundaries,
+                        gpsElevations, temperatures
                     }));
             });
         });
@@ -646,7 +650,8 @@ export class FileParser {
             gpsAccuracies = [], device = null, sessionSummary = null,
             verticalOscillations = [], groundContactTimes = [], verticalRatios = [],
             groundContactBalances = [], stepLengths = [], absolutePressures = [],
-            batteryLevels = [], hrZoneBoundaries = null, powerZoneBoundaries = null
+            batteryLevels = [], hrZoneBoundaries = null, powerZoneBoundaries = null,
+            gpsElevations = [], temperatures = []
         } = {}) {
         const distance = Utils.calculateDistance(coordinates);
         const elevStats = Utils.calculateElevationStats(elevations);
@@ -657,16 +662,34 @@ export class FileParser {
             duration = (validTimestamps[validTimestamps.length - 1] - validTimestamps[0]) / 1000;
         }
 
+        // Only keep gpsElevations if they meaningfully differ from elevations
+        // (i.e. the file has both GPS and barometric altitude)
+        let validGpsElevations = [];
+        if (gpsElevations.length > 0) {
+            let diffCount = 0;
+            for (let i = 0; i < Math.min(gpsElevations.length, elevations.length); i++) {
+                if (gpsElevations[i] != null && elevations[i] != null &&
+                    Math.abs(gpsElevations[i] - elevations[i]) > 0.1) {
+                    diffCount++;
+                }
+            }
+            if (diffCount > gpsElevations.length * 0.1) {
+                validGpsElevations = gpsElevations;
+            }
+        }
+
         return {
             filename,
             color,
             coordinates,
             elevations,
+            gpsElevations: validGpsElevations,
             heartRates,
             cadences,
             powers,
             gpsAccuracies,
             batteryLevels,
+            temperatures,
             hrZoneBoundaries,
             powerZoneBoundaries,
             device,

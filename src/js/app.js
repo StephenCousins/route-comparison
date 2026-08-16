@@ -350,6 +350,8 @@ class RouteOverlayApp {
             powers: route.powers,
             gpsAccuracies: route.gpsAccuracies,
             batteryLevels: route.batteryLevels,
+            gpsElevations: route.gpsElevations,
+            temperatures: route.temperatures,
             hrZoneBoundaries: route.hrZoneBoundaries,
             powerZoneBoundaries: route.powerZoneBoundaries,
             sessionSummary: route.sessionSummary,
@@ -444,6 +446,8 @@ class RouteOverlayApp {
                 powers: routeData.powers || [],
                 gpsAccuracies: routeData.gpsAccuracies || [],
                 batteryLevels: routeData.batteryLevels || [],
+                gpsElevations: routeData.gpsElevations || [],
+                temperatures: routeData.temperatures || [],
                 hrZoneBoundaries: routeData.hrZoneBoundaries || null,
                 powerZoneBoundaries: routeData.powerZoneBoundaries || null,
                 device: routeData.device || null,
@@ -925,7 +929,8 @@ class RouteOverlayApp {
             cadence: { data: 'cadences', name: 'Cadence', label: 'Cadence (spm)', format: v => Math.round(v) + ' spm' },
             power: { data: 'powers', name: 'Power', label: 'Power (W)', format: v => Math.round(v) + 'W' },
             gpsaccuracy: { data: 'gpsAccuracies', name: 'GPS Accuracy', label: 'GPS Accuracy (m)', format: v => Math.round(v) + 'm' },
-            battery: { data: 'batteryLevels', name: 'Battery', label: 'Battery (%)', format: v => Math.round(v) + '%' }
+            battery: { data: 'batteryLevels', name: 'Battery', label: 'Battery (%)', format: v => Math.round(v) + '%' },
+            temperature: { data: 'temperatures', name: 'Temperature', label: 'Temperature (°C)', format: v => v.toFixed(1) + '°C' }
         };
 
         const config = metricConfig[metricType];
@@ -947,6 +952,27 @@ class RouteOverlayApp {
             return;
         }
         this.chartManager.showMeanMaxPower(validRoutes);
+    }
+
+    compareDevFields() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+        const devFieldDefs = [
+            { key: 'verticalOscillations', name: 'Vertical Oscillation', label: 'Vertical Oscillation (mm)', format: v => v.toFixed(1) + ' mm' },
+            { key: 'groundContactTimes', name: 'Ground Contact Time', label: 'Ground Contact Time (ms)', format: v => Math.round(v) + ' ms' },
+            { key: 'verticalRatios', name: 'Vertical Ratio', label: 'Vertical Ratio (%)', format: v => v.toFixed(1) + '%' },
+            { key: 'groundContactBalances', name: 'GCT Balance', label: 'GCT Balance (%)', format: v => v.toFixed(1) + '%' },
+            { key: 'stepLengths', name: 'Step Length', label: 'Step Length (m)', format: v => v.toFixed(2) + ' m' }
+        ];
+
+        const available = devFieldDefs.filter(def =>
+            selectedRoutes.some(r => r[def.key] && r[def.key].some(v => v !== null))
+        );
+        if (available.length === 0) {
+            showToast('No running dynamics data in selected routes');
+            return;
+        }
+
+        this.chartManager.showDevFields(selectedRoutes, available, this.autoAlignOffsets);
     }
 
     compareTimeGap() {
@@ -2190,7 +2216,8 @@ class RouteOverlayApp {
                 cadence: 'cadences',
                 power: 'powers',
                 gpsaccuracy: 'gpsAccuracies',
-                battery: 'batteryLevels'
+                battery: 'batteryLevels',
+                temperature: 'temperatures'
             };
             btn.disabled = !hasMetric(propMap[metric]);
         });
@@ -2263,6 +2290,17 @@ class RouteOverlayApp {
         const hrValidationBtn = document.querySelector('.comparison-hrvalidation-btn');
         if (hrValidationBtn) {
             hrValidationBtn.disabled = routesWithHeartRate.length < 2;
+        }
+
+        const devFieldsBtn = document.querySelector('.comparison-devfields-btn');
+        if (devFieldsBtn) {
+            const hasDevFields = selectedRoutes.some(r =>
+                (r.verticalOscillations && r.verticalOscillations.some(v => v !== null)) ||
+                (r.groundContactTimes && r.groundContactTimes.some(v => v !== null)) ||
+                (r.verticalRatios && r.verticalRatios.some(v => v !== null)) ||
+                (r.stepLengths && r.stepLengths.some(v => v !== null))
+            );
+            devFieldsBtn.disabled = !hasDevFields;
         }
 
         // Auto-open unless the user has explicitly dismissed the panel.
@@ -2431,6 +2469,10 @@ window.autoAlign = function() {
 
 window.compareMeanMaxPower = function() {
     if (app) app.compareMeanMaxPower();
+};
+
+window.compareDevFields = function() {
+    if (app) app.compareDevFields();
 };
 
 window.compareDistanceDrift = function() {

@@ -978,6 +978,24 @@ tr:hover {
 .chart-control-btn.active {
     background: var(--status-success);
 }
+.chart-control-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-hairline);
+}
+.chart-control-toggle:hover {
+    background: var(--surface-3);
+}
+.chart-control-toggle input[type="checkbox"] {
+    margin: 0;
+}
 .chart-legend {
     margin-top: 15px;
     padding: 10px;

@@ -14,6 +14,8 @@ export class Route {
         this.powers = data.powers || [];
         this.gpsAccuracies = data.gpsAccuracies || [];
         this.batteryLevels = data.batteryLevels || [];
+        this.gpsElevations = data.gpsElevations || [];
+        this.temperatures = data.temperatures || [];
         this.hrZoneBoundaries = data.hrZoneBoundaries || null;
         this.powerZoneBoundaries = data.powerZoneBoundaries || null;
         this.device = data.device || null;
