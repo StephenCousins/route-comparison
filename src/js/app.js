@@ -68,6 +68,9 @@ class RouteOverlayApp {
         this.setupPlaybackControls();
         this.setupModalDismissal();
         this.setupComparisonMenubar();
+        this.setupPhotos();
+        this.setupSaveSessionModal();
+        this.setupSessionSearch();
     }
 
     async checkForSharedSession() {
@@ -164,6 +167,10 @@ class RouteOverlayApp {
         };
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
+            const saveModal = document.getElementById('saveSessionModal');
+            if (saveModal && saveModal.style.display !== 'none') { saveModal.style.display = 'none'; return; }
+            const lightbox = document.querySelector('.photo-lightbox');
+            if (lightbox) { lightbox.remove(); return; }
             const open = modalIds.map(id => document.getElementById(id)).find(m => m && m.classList.contains('show'));
             if (open) closeModal(open);
         });
@@ -224,7 +231,7 @@ class RouteOverlayApp {
 
         signInBtn.addEventListener('click', () => this.authManager.signInWithGoogle());
         signOutBtn.addEventListener('click', () => this.authManager.signOut());
-        saveBtn.addEventListener('click', () => this.saveCurrentSession());
+        saveBtn.addEventListener('click', () => this.openSaveSessionModal());
 
         this.authManager.onAuthStateChanged(async (user) => {
             this.currentUser = user;
@@ -279,23 +286,48 @@ class RouteOverlayApp {
         loadBtn.classList.toggle('visible', hasSessions && !!this.currentUser);
         document.getElementById('sessionsEmptyState').classList.toggle('hidden', hasSessions);
 
+        const allTags = new Set();
+        sessions.forEach(s => (s.tags || []).forEach(t => allTags.add(t)));
+        const tabsEl = document.getElementById('libraryTabs');
+        if (tabsEl) {
+            tabsEl.innerHTML = '<button class="library-tab active" data-folder="all">All</button>';
+            allTags.forEach(tag => {
+                const btn = document.createElement('button');
+                btn.className = 'library-tab';
+                btn.dataset.folder = tag;
+                btn.textContent = tag;
+                btn.onclick = () => {
+                    tabsEl.querySelectorAll('.library-tab').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    this.filterSessionsByTag(tag);
+                };
+                tabsEl.appendChild(btn);
+            });
+            tabsEl.querySelector('[data-folder="all"]').onclick = () => {
+                tabsEl.querySelectorAll('.library-tab').forEach(b => b.classList.remove('active'));
+                tabsEl.querySelector('[data-folder="all"]').classList.add('active');
+                this.filterSessionsByTag(null);
+            };
+        }
+
         sessions.forEach(session => {
             const item = document.createElement('div');
             item.className = 'saved-session-item';
+            item.dataset.tags = (session.tags || []).join(',');
 
             const info = document.createElement('div');
             info.className = 'session-info';
 
-            const routeNames = session.routes.map(r => r.displayName || 'Unnamed').slice(0, 2);
-            const moreText = session.routes.length > 2 ? ` +${session.routes.length - 2} more` : '';
-            // Show the saved date — the most useful way to tell similar sessions apart.
+            const displayName = session.name || session.routes.map(r => r.displayName || 'Unnamed').slice(0, 2).join(', ') + (session.routes.length > 2 ? ` +${session.routes.length - 2} more` : '');
             const createdDate = this.parseFirestoreTimestamp(session.createdAt);
             const dateStr = createdDate
                 ? createdDate.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
                 : '';
+            const tagsHtml = (session.tags || []).map(t => `<span class="session-tag">${t}</span>`).join('');
             info.innerHTML = `
-                <div class="session-name">${routeNames.join(', ')}${moreText}</div>
-                <div class="session-meta">${session.routeCount} route${session.routeCount > 1 ? 's' : ''}${dateStr ? ' · ' + dateStr : ''}</div>
+                <div class="session-name">${displayName}</div>
+                <div class="session-meta">${session.routeCount} route${session.routeCount > 1 ? 's' : ''}${dateStr ? ' · ' + dateStr : ''}${session.notes ? ' · ' + session.notes.slice(0, 60) : ''}</div>
+                ${tagsHtml ? `<div class="session-tags">${tagsHtml}</div>` : ''}
             `;
 
             const actions = document.createElement('div');
@@ -383,7 +415,17 @@ class RouteOverlayApp {
             fileName: route.filename
         }));
 
-        const sessionId = await this.storageManager.saveRoutes(routesData);
+        const sessionName = document.getElementById('sessionNameInput')?.value.trim() || '';
+        const sessionTags = (document.getElementById('sessionTagsInput')?.value || '')
+            .split(',').map(t => t.trim()).filter(Boolean);
+        const sessionNotes = document.getElementById('sessionNotesInput')?.value.trim() || '';
+
+        const metadata = {};
+        if (sessionName) metadata.name = sessionName;
+        if (sessionTags.length > 0) metadata.tags = sessionTags;
+        if (sessionNotes) metadata.notes = sessionNotes;
+
+        const sessionId = await this.storageManager.saveRoutes(routesData, metadata);
         if (sessionId) {
             showToast('Session saved!', 'success');
             await this.loadSavedSessions();
@@ -699,12 +741,17 @@ class RouteOverlayApp {
             compareHint.classList.remove('visible');
         }
 
+        const photoSection = document.getElementById('photoSection');
+
         if (this.routes.length === 0) {
             fileList.classList.add('hidden');
             dropZone.classList.remove('hidden');
             compactDropZone.classList.add('hidden');
+            if (photoSection) photoSection.classList.add('hidden');
             return;
         }
+
+        if (photoSection) photoSection.classList.remove('hidden');
 
         fileList.classList.remove('hidden');
         dropZone.classList.add('hidden');
@@ -2423,6 +2470,234 @@ class RouteOverlayApp {
 
         this.downloadTextFile(`route-comparison-${new Date().toISOString().slice(0, 10)}.csv`, csvContent, 'text/csv;charset=utf-8;');
     }
+
+    routeToGPX(route) {
+        const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        let gpx = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Route Overlay">\n<trk><name>${esc(route.displayName)}</name><trkseg>\n`;
+        for (let i = 0; i < route.coordinates.length; i++) {
+            const c = route.coordinates[i];
+            const elev = route.elevations[i];
+            const ts = route.timestamps && route.timestamps[i];
+            gpx += `<trkpt lat="${c.lat}" lon="${c.lng}">`;
+            if (elev != null) gpx += `<ele>${elev.toFixed(1)}</ele>`;
+            if (ts) gpx += `<time>${new Date(ts).toISOString()}</time>`;
+            gpx += `</trkpt>\n`;
+        }
+        gpx += `</trkseg></trk>\n</gpx>`;
+        return gpx;
+    }
+
+    async downloadZip() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+        if (selectedRoutes.length === 0) {
+            showToast('No routes selected');
+            return;
+        }
+        if (typeof JSZip === 'undefined') {
+            showToast('ZIP library not loaded', 'error');
+            return;
+        }
+
+        const zip = new JSZip();
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const folder = zip.folder(`route-export-${dateStr}`);
+
+        selectedRoutes.forEach(route => {
+            const safeName = route.displayName.replace(/[^a-zA-Z0-9_\- ]/g, '').trim() || 'route';
+            folder.file(`${safeName}.gpx`, this.routeToGPX(route));
+        });
+
+        if (selectedRoutes.length >= 2) {
+            const csv = this.buildComparisonCSV(selectedRoutes);
+            if (csv) folder.file('comparison.csv', csv);
+        }
+
+        if (this.photos && this.photos.length > 0) {
+            const photosFolder = folder.folder('photos');
+            this.photos.forEach((photo, i) => {
+                const match = photo.dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+                if (match) {
+                    photosFolder.file(`photo_${i + 1}.${match[1]}`, match[2], { base64: true });
+                }
+            });
+        }
+
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `route-export-${dateStr}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        showToast('ZIP downloaded', 'success');
+    }
+
+    buildComparisonCSV(selectedRoutes) {
+        const avg = (arr) => arr && arr.length > 0
+            ? arr.filter(v => v !== null && !isNaN(v)).reduce((a, b) => a + b, 0) / arr.filter(v => v !== null && !isNaN(v)).length
+            : null;
+
+        const headers = ['Route Name','Distance (km)','Duration','Avg Pace (min/km)','Elevation Gain (m)','Avg Heart Rate (bpm)','Avg Power (W)'];
+        const rows = selectedRoutes.map(route => [
+            `"${route.displayName.replace(/"/g, '""')}"`,
+            (route.stats.distance / 1000).toFixed(2),
+            route.stats.duration ? Utils.formatDuration(route.stats.duration) : 'N/A',
+            avg(route.paces) ? Utils.formatPace(avg(route.paces)) : 'N/A',
+            Math.round(route.stats.elevationGain),
+            avg(route.heartRates) ? Math.round(avg(route.heartRates)) : 'N/A',
+            avg(route.powers) ? Math.round(avg(route.powers)) : 'N/A'
+        ]);
+        return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    }
+
+    setupPhotos() {
+        this.photos = [];
+        const dropZone = document.getElementById('photoDropZone');
+        if (!dropZone) return;
+
+        dropZone.addEventListener('click', () => dropZone.querySelector('input').click());
+        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            this.addPhotos(e.dataTransfer.files);
+        });
+        dropZone.querySelector('input').addEventListener('change', e => {
+            this.addPhotos(e.target.files);
+            e.target.value = '';
+        });
+    }
+
+    addPhotos(files) {
+        Array.from(files).forEach(file => {
+            if (!file.type.startsWith('image/')) return;
+            if (file.size > 5 * 1024 * 1024) {
+                showToast(`${file.name} is too large (max 5MB)`, 'warning');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                this.photos.push({
+                    name: file.name,
+                    dataUrl: e.target.result,
+                    addedAt: new Date().toISOString()
+                });
+                this.renderPhotoGallery();
+            };
+            reader.readAsDataURL(file);
+        });
+    }
+
+    renderPhotoGallery() {
+        const gallery = document.getElementById('photoGallery');
+        if (!gallery) return;
+        gallery.innerHTML = '';
+
+        this.photos.forEach((photo, i) => {
+            const thumb = document.createElement('div');
+            thumb.className = 'photo-thumb';
+            thumb.innerHTML = `
+                <img src="${photo.dataUrl}" alt="${photo.name}" title="${photo.name}">
+                <button class="photo-remove" title="Remove">&times;</button>
+            `;
+            thumb.querySelector('.photo-remove').onclick = (e) => {
+                e.stopPropagation();
+                this.photos.splice(i, 1);
+                this.renderPhotoGallery();
+            };
+            thumb.querySelector('img').onclick = () => this.showPhotoLightbox(i);
+            gallery.appendChild(thumb);
+        });
+    }
+
+    setupSaveSessionModal() {
+        const modal = document.getElementById('saveSessionModal');
+        if (!modal) return;
+
+        document.getElementById('closeSaveSessionModal').addEventListener('click', () => {
+            modal.style.display = 'none';
+        });
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) modal.style.display = 'none';
+        });
+
+        document.getElementById('confirmSaveSessionBtn').addEventListener('click', async () => {
+            await this.saveCurrentSession();
+            modal.style.display = 'none';
+        });
+    }
+
+    openSaveSessionModal() {
+        if (this.routes.length === 0) {
+            showToast('No routes to save');
+            return;
+        }
+        const modal = document.getElementById('saveSessionModal');
+        if (!modal) { this.saveCurrentSession(); return; }
+        document.getElementById('sessionNameInput').value = '';
+        document.getElementById('sessionTagsInput').value = '';
+        document.getElementById('sessionNotesInput').value = '';
+        modal.style.display = 'flex';
+    }
+
+    filterSessionsByTag(tag) {
+        const items = document.querySelectorAll('#savedSessionsList .saved-session-item');
+        items.forEach(item => {
+            if (!tag) {
+                item.style.display = '';
+            } else {
+                const tags = (item.dataset.tags || '').split(',');
+                item.style.display = tags.includes(tag) ? '' : 'none';
+            }
+        });
+    }
+
+    setupSessionSearch() {
+        const searchInput = document.getElementById('sessionSearchInput');
+        if (!searchInput) return;
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.toLowerCase().trim();
+            const items = document.querySelectorAll('#savedSessionsList .saved-session-item');
+            items.forEach(item => {
+                const text = item.textContent.toLowerCase();
+                item.style.display = text.includes(query) ? '' : 'none';
+            });
+        });
+    }
+
+    showPhotoLightbox(index) {
+        const photo = this.photos[index];
+        if (!photo) return;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'photo-lightbox';
+        overlay.innerHTML = `
+            <div class="photo-lightbox-content">
+                <img src="${photo.dataUrl}" alt="${photo.name}">
+                <div class="photo-lightbox-nav">
+                    <button class="photo-nav-btn" id="photoPrev">&larr;</button>
+                    <span>${photo.name} (${index + 1}/${this.photos.length})</span>
+                    <button class="photo-nav-btn" id="photoNext">&rarr;</button>
+                </div>
+            </div>
+        `;
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
+        overlay.querySelector('#photoPrev').onclick = () => {
+            overlay.remove();
+            this.showPhotoLightbox((index - 1 + this.photos.length) % this.photos.length);
+        };
+        overlay.querySelector('#photoNext').onclick = () => {
+            overlay.remove();
+            this.showPhotoLightbox((index + 1) % this.photos.length);
+        };
+        document.body.appendChild(overlay);
+    }
 }
 
 // Initialize
@@ -2549,6 +2824,10 @@ window.stopRace = function() {
 
 window.exportComparisonCSV = function() {
     if (app) app.exportComparisonCSV();
+};
+
+window.downloadZip = function() {
+    if (app) app.downloadZip();
 };
 
 window.generateFaultReport = function() {

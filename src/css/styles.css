@@ -2305,3 +2305,188 @@ tr:hover {
     font-size: 14px;
     padding: 24px 0;
 }
+
+/* Photo section */
+#photoSection {
+    margin-top: 12px;
+    padding: 0 8px;
+}
+#photoDropZone {
+    border: 1px dashed var(--border-hairline-strong);
+    border-radius: 6px;
+    padding: 10px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-secondary);
+    transition: border-color 0.2s;
+}
+#photoDropZone:hover, #photoDropZone.drag-over {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+#photoDropZone input { display: none; }
+#photoGallery {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+.photo-thumb {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: pointer;
+}
+.photo-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.photo-remove {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: rgba(0,0,0,0.6);
+    color: white;
+    font-size: 12px;
+    line-height: 18px;
+    text-align: center;
+    border-radius: 50%;
+    cursor: pointer;
+    padding: 0;
+    display: none;
+}
+.photo-thumb:hover .photo-remove { display: block; }
+
+/* Photo lightbox */
+.photo-lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.photo-lightbox-content {
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.photo-lightbox-content img {
+    max-width: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+    border-radius: 4px;
+}
+.photo-lightbox-nav {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: white;
+    font-size: 13px;
+}
+.photo-nav-btn {
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 18px;
+    cursor: pointer;
+}
+.photo-nav-btn:hover { background: rgba(255,255,255,0.3); }
+
+/* Session tags */
+.session-tag {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: white;
+    margin-right: 4px;
+    margin-top: 3px;
+}
+.session-tags { margin-top: 2px; }
+
+/* Library tabs */
+.library-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    overflow-x: auto;
+    flex-shrink: 0;
+}
+.library-tab {
+    padding: 4px 10px;
+    border: 1px solid var(--border-hairline);
+    border-radius: 14px;
+    background: var(--surface-2);
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.library-tab:hover { background: var(--surface-3); }
+.library-tab.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+/* Session search */
+.session-search {
+    flex: 1;
+    min-width: 0;
+    margin: 0 10px;
+    padding: 5px 10px;
+    border: 1px solid var(--border-hairline);
+    border-radius: 4px;
+    font-size: 13px;
+    background: var(--surface-2);
+    color: var(--text-primary);
+}
+
+/* Save session modal */
+#saveSessionModal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 2000;
+    align-items: center;
+    justify-content: center;
+}
+.save-session-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.save-session-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.save-session-form input,
+.save-session-form textarea {
+    padding: 6px 10px;
+    border: 1px solid var(--border-hairline);
+    border-radius: 4px;
+    font-size: 13px;
+    background: var(--surface-2);
+    color: var(--text-primary);
+    font-family: inherit;
+}
+.save-session-form textarea { resize: vertical; }

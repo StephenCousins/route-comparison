@@ -24,6 +24,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-storage-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
     <!-- FIT parsing is loaded on demand by FileParser.js (js/FileParser.js) -->
 </head>
@@ -74,6 +75,14 @@
             </div>
 
             <div id="fileList" class="hidden"></div>
+
+            <div id="photoSection" class="hidden">
+                <div id="photoDropZone">
+                    <p>Drop photos here or click to add</p>
+                    <input type="file" multiple accept="image/*">
+                </div>
+                <div id="photoGallery"></div>
+            </div>
         </div>
 
         <div id="mapContainer">
@@ -127,6 +136,7 @@
                 <div class="cmp-group cmp-group--actions">
                     <button class="cmp-btn cmp-btn--primary comparison-race-btn" data-metric="race" title="Needs 2+ routes with recorded time" onclick="startRace()">Race</button>
                     <button class="cmp-btn cmp-btn--ghost comparison-export-btn" onclick="exportComparisonCSV()">Export CSV</button>
+                    <button class="cmp-btn cmp-btn--ghost comparison-zip-btn" onclick="downloadZip()">Download ZIP</button>
                     <button class="cmp-btn cmp-btn--ghost comparison-close" onclick="closeComparison()">Close</button>
                 </div>
             </div>
@@ -329,13 +339,16 @@
         </div>
     </div>
 
-    <!-- Saved Sessions Modal -->
+    <!-- Activity Library Modal -->
     <div id="sessionsModal" role="dialog" aria-modal="true">
-        <div class="sessions-modal-content">
+        <div class="sessions-modal-content" style="width:640px;">
             <div class="sessions-modal-header">
-                <h2>Saved Sessions</h2>
-                <input type="text" id="sessionSearchInput" placeholder="Search sessions..." class="session-search">
+                <h2>Activity Library</h2>
+                <input type="text" id="sessionSearchInput" placeholder="Search by name, tag, or device..." class="session-search">
                 <button class="modal-close" id="closeSessionsModal">Close</button>
+            </div>
+            <div class="library-tabs" id="libraryTabs">
+                <button class="library-tab active" data-folder="all">All</button>
             </div>
             <div id="savedSessionsList"></div>
             <p id="sessionsEmptyState" class="hidden">No saved sessions yet. Load some routes and hit "Save Session".</p>

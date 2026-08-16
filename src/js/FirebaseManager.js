@@ -100,7 +100,7 @@ export class FirebaseStorageManager {
         this.userId = userId;
     }
 
-    async saveRoutes(routes) {
+    async saveRoutes(routes, metadata = {}) {
         if (!firebaseInitialized || !this.userId) {
             console.warn('Cannot save: not logged in');
             return false;
@@ -199,11 +199,16 @@ export class FirebaseStorageManager {
                 return routeData;
             });
 
-            const docRef = await db.collection('users').doc(this.userId).collection('sessions').add({
+            const sessionDoc = {
                 routes: routesData,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp(),
                 routeCount: routes.length
-            });
+            };
+            if (metadata.name) sessionDoc.name = metadata.name;
+            if (metadata.tags && metadata.tags.length > 0) sessionDoc.tags = metadata.tags;
+            if (metadata.notes) sessionDoc.notes = metadata.notes;
+
+            const docRef = await db.collection('users').doc(this.userId).collection('sessions').add(sessionDoc);
 
             console.log('Routes saved:', docRef.id);
             return docRef.id;
