@@ -266,23 +266,23 @@ export class FileParser {
     }
 
     // Extract per-trackpoint battery levels from a FIT file.
-    // Newer devices write battery_soc (%) in every record; older ones log
-    // battery_voltage in periodic device_info messages. When only voltage
-    // snapshots exist, linearly interpolate them across the trackpoint
-    // timestamps to produce a per-point array.
+    // Sources (checked in order):
+    //   1. Per-record developer fields (Connect IQ battery data field)
+    //   2. device_info battery_level snapshots (device_index 0 = the watch)
+    //   3. device_info battery_voltage snapshots (converted to relative %)
+    // Sparse snapshots are step-interpolated to each trackpoint timestamp.
     static buildBatteryLevels(data, timestamps) {
         const records = data.records || [];
 
-        // 1. Try per-record battery_soc (percentage, 0-100)
+        // 1. Per-record battery fields (Connect IQ developer fields or native)
         const perRecordSoc = [];
         let hasPerRecord = false;
-        let recIdx = 0;
         records.forEach(record => {
             if (record.position_lat !== undefined && record.position_long !== undefined) {
                 const lat = record.position_lat;
                 const lng = record.position_long;
                 if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-                    const soc = record.battery_soc ?? null;
+                    const soc = record.battery_soc ?? record.battery_level ?? null;
                     if (soc !== null) hasPerRecord = true;
                     perRecordSoc.push(soc);
                 }
@@ -290,41 +290,53 @@ export class FileParser {
         });
         if (hasPerRecord) return perRecordSoc;
 
-        // 2. Fall back to device_info battery_voltage snapshots
+        // 2. device_info battery_level snapshots (percentage, device_index 0)
         const deviceInfos = data.device_infos || [];
-        const snapshots = [];
+        const levelSnapshots = [];
+        for (const di of deviceInfos) {
+            if (di.battery_level != null && isFinite(di.battery_level) && di.timestamp) {
+                const t = new Date(di.timestamp).getTime();
+                if (isFinite(t) && (di.device_index === 0 || di.device_index === undefined)) {
+                    levelSnapshots.push({ time: t, pct: di.battery_level });
+                }
+            }
+        }
+        if (levelSnapshots.length >= 1) {
+            return this.interpolateSnapshots(levelSnapshots, timestamps, s => s.pct);
+        }
+
+        // 3. device_info battery_voltage snapshots (convert to relative %)
+        const voltSnapshots = [];
         for (const di of deviceInfos) {
             if (di.battery_voltage != null && isFinite(di.battery_voltage) && di.timestamp) {
                 const t = new Date(di.timestamp).getTime();
-                if (isFinite(t)) snapshots.push({ time: t, voltage: di.battery_voltage });
+                if (isFinite(t)) voltSnapshots.push({ time: t, voltage: di.battery_voltage });
             }
         }
-        if (snapshots.length < 2) return [];
+        if (voltSnapshots.length < 2) return [];
 
-        snapshots.sort((a, b) => a.time - b.time);
-
-        // Convert voltage to a relative 0-100% scale using the observed range
-        const minV = snapshots[snapshots.length - 1].voltage;
-        const maxV = snapshots[0].voltage;
+        voltSnapshots.sort((a, b) => a.time - b.time);
+        const minV = Math.min(...voltSnapshots.map(s => s.voltage));
+        const maxV = Math.max(...voltSnapshots.map(s => s.voltage));
         const rangeV = maxV - minV;
+        return this.interpolateSnapshots(voltSnapshots, timestamps,
+            s => rangeV > 0 ? ((s.voltage - minV) / rangeV) * 100 : 100);
+    }
 
-        // Interpolate to each trackpoint timestamp
+    // Step-interpolate sparse snapshots to per-trackpoint values.
+    // Uses step (hold previous value) rather than linear interpolation
+    // to match how battery level actually behaves (discrete steps).
+    static interpolateSnapshots(snapshots, timestamps, getValue) {
+        if (snapshots.length === 0) return [];
+        const sorted = [...snapshots].sort((a, b) => a.time - b.time);
+
         return timestamps.map(ts => {
             if (!ts) return null;
             const t = ts.getTime();
-            if (t <= snapshots[0].time) {
-                return rangeV > 0 ? ((snapshots[0].voltage - minV) / rangeV) * 100 : 100;
-            }
-            if (t >= snapshots[snapshots.length - 1].time) {
-                return rangeV > 0 ? ((snapshots[snapshots.length - 1].voltage - minV) / rangeV) * 100 : 0;
-            }
-            // Find surrounding snapshots
-            for (let i = 0; i < snapshots.length - 1; i++) {
-                if (t >= snapshots[i].time && t <= snapshots[i + 1].time) {
-                    const frac = (t - snapshots[i].time) / (snapshots[i + 1].time - snapshots[i].time);
-                    const v = snapshots[i].voltage + frac * (snapshots[i + 1].voltage - snapshots[i].voltage);
-                    return rangeV > 0 ? ((v - minV) / rangeV) * 100 : 100;
-                }
+            if (t <= sorted[0].time) return getValue(sorted[0]);
+            if (t >= sorted[sorted.length - 1].time) return getValue(sorted[sorted.length - 1]);
+            for (let i = sorted.length - 1; i >= 0; i--) {
+                if (t >= sorted[i].time) return getValue(sorted[i]);
             }
             return null;
         });
