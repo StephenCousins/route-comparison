@@ -265,13 +265,86 @@ export class FileParser {
         return { manufacturer, productName, firmwareVersion, serialNumber };
     }
 
+    // Scan raw FIT binary for message type 104 ("pad") which Garmin uses
+    // for periodic battery snapshots: field 2 = battery %, field 253 = timestamp.
+    static extractBatteryFromRaw(arrayBuffer) {
+        const buf = new Uint8Array(arrayBuffer);
+        if (buf.length < 14) return [];
+        const headerSize = buf[0];
+        let offset = headerSize;
+        const definitions = {};
+        const GARMIN_EPOCH = new Date('1989-12-31T00:00:00Z').getTime();
+        const snapshots = [];
+
+        while (offset < buf.length - 2) {
+            const rh = buf[offset]; offset++;
+
+            if ((rh & 0x80) !== 0) {
+                const lt = (rh >> 5) & 0x03;
+                if (definitions[lt]) offset += definitions[lt].totalSize;
+                continue;
+            }
+
+            const isDef = (rh & 0x40) !== 0;
+            const hasDev = (rh & 0x20) !== 0;
+            const lt = rh & 0x0F;
+
+            if (isDef) {
+                offset++; // reserved
+                const arch = buf[offset]; offset++;
+                const gm = arch === 0
+                    ? (buf[offset] | (buf[offset + 1] << 8))
+                    : ((buf[offset] << 8) | buf[offset + 1]);
+                offset += 2;
+                const nf = buf[offset]; offset++;
+                const fields = [];
+                let totalSize = 0;
+                for (let i = 0; i < nf; i++) {
+                    const fn = buf[offset++], sz = buf[offset++], bt = buf[offset++];
+                    fields.push({ fn, sz, off: totalSize });
+                    totalSize += sz;
+                }
+                if (hasDev) {
+                    const dc = buf[offset]; offset++;
+                    for (let i = 0; i < dc; i++) {
+                        offset++; totalSize += buf[offset++]; offset++;
+                    }
+                }
+                definitions[lt] = { gm, fields, totalSize };
+            } else {
+                const def = definitions[lt];
+                if (!def) break;
+
+                if (def.gm === 104) {
+                    let ts = null, pct = null;
+                    for (const f of def.fields) {
+                        const o = offset + f.off;
+                        if (f.fn === 253 && f.sz === 4) {
+                            const v = (buf[o] | (buf[o+1] << 8) | (buf[o+2] << 16) | (buf[o+3] << 24)) >>> 0;
+                            if (v !== 0xFFFFFFFF) ts = GARMIN_EPOCH + v * 1000;
+                        } else if (f.fn === 2 && f.sz === 1) {
+                            const v = buf[o];
+                            if (v !== 0xFF) pct = v;
+                        }
+                    }
+                    if (ts !== null && pct !== null) {
+                        snapshots.push({ time: ts, pct });
+                    }
+                }
+                offset += def.totalSize;
+            }
+        }
+        return snapshots;
+    }
+
     // Extract per-trackpoint battery levels from a FIT file.
     // Sources (checked in order):
     //   1. Per-record developer fields (Connect IQ battery data field)
-    //   2. device_info battery_level snapshots (device_index 0 = the watch)
-    //   3. device_info battery_voltage snapshots (converted to relative %)
+    //   2. Raw binary message type 104 battery snapshots (Garmin "pad")
+    //   3. device_info battery_level snapshots (device_index 0 = the watch)
+    //   4. device_info battery_voltage snapshots (converted to relative %)
     // Sparse snapshots are step-interpolated to each trackpoint timestamp.
-    static buildBatteryLevels(data, timestamps) {
+    static buildBatteryLevels(data, timestamps, rawArrayBuffer) {
         const records = data.records || [];
 
         // 1. Per-record battery fields (Connect IQ developer fields or native)
@@ -290,7 +363,16 @@ export class FileParser {
         });
         if (hasPerRecord) return perRecordSoc;
 
-        // 2. device_info battery_level snapshots (percentage, device_index 0)
+        // 2. Raw binary message type 104 battery snapshots
+        if (rawArrayBuffer) {
+            const rawSnapshots = this.extractBatteryFromRaw(rawArrayBuffer);
+            if (rawSnapshots.length >= 1) {
+                return this.interpolateSnapshots(rawSnapshots, timestamps, s => s.pct);
+            }
+        }
+
+        // 3. device_info battery_level snapshots (percentage, device_index 0)
+        //    (rarely populated — most Garmin watches use message 104 instead)
         const deviceInfos = data.device_infos || [];
         const levelSnapshots = [];
         for (const di of deviceInfos) {
@@ -305,7 +387,7 @@ export class FileParser {
             return this.interpolateSnapshots(levelSnapshots, timestamps, s => s.pct);
         }
 
-        // 3. device_info battery_voltage snapshots (convert to relative %)
+        // 4. device_info battery_voltage snapshots (convert to relative %)
         const voltSnapshots = [];
         for (const di of deviceInfos) {
             if (di.battery_voltage != null && isFinite(di.battery_voltage) && di.timestamp) {
@@ -520,7 +602,7 @@ export class FileParser {
                     return;
                 }
 
-                const batteryLevels = this.buildBatteryLevels(data, timestamps);
+                const batteryLevels = this.buildBatteryLevels(data, timestamps, arrayBuffer);
 
                 // Clean GPS data (filter outliers and smooth)
                 const cleanedData = Utils.cleanGPSData(speeds, paces, coordinates, timestamps, VALIDATION.MAX_SPEED_KMH);
