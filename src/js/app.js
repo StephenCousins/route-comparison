@@ -349,6 +349,9 @@ class RouteOverlayApp {
             cadences: route.cadences,
             powers: route.powers,
             gpsAccuracies: route.gpsAccuracies,
+            batteryLevels: route.batteryLevels,
+            hrZoneBoundaries: route.hrZoneBoundaries,
+            powerZoneBoundaries: route.powerZoneBoundaries,
             sessionSummary: route.sessionSummary,
             verticalOscillations: route.verticalOscillations,
             groundContactTimes: route.groundContactTimes,
@@ -440,6 +443,9 @@ class RouteOverlayApp {
                 cadences: routeData.cadences || [],
                 powers: routeData.powers || [],
                 gpsAccuracies: routeData.gpsAccuracies || [],
+                batteryLevels: routeData.batteryLevels || [],
+                hrZoneBoundaries: routeData.hrZoneBoundaries || null,
+                powerZoneBoundaries: routeData.powerZoneBoundaries || null,
                 device: routeData.device || null,
                 sessionSummary: routeData.sessionSummary || null,
                 verticalOscillations: routeData.verticalOscillations || [],
@@ -918,7 +924,8 @@ class RouteOverlayApp {
             heartrate: { data: 'heartRates', name: 'Heart Rate', label: 'Heart Rate (bpm)', format: v => Math.round(v) + ' bpm' },
             cadence: { data: 'cadences', name: 'Cadence', label: 'Cadence (spm)', format: v => Math.round(v) + ' spm' },
             power: { data: 'powers', name: 'Power', label: 'Power (W)', format: v => Math.round(v) + 'W' },
-            gpsaccuracy: { data: 'gpsAccuracies', name: 'GPS Accuracy', label: 'GPS Accuracy (m)', format: v => Math.round(v) + 'm' }
+            gpsaccuracy: { data: 'gpsAccuracies', name: 'GPS Accuracy', label: 'GPS Accuracy (m)', format: v => Math.round(v) + 'm' },
+            battery: { data: 'batteryLevels', name: 'Battery', label: 'Battery (%)', format: v => Math.round(v) + '%' }
         };
 
         const config = metricConfig[metricType];
@@ -2172,7 +2179,8 @@ class RouteOverlayApp {
                 heartrate: 'heartRates',
                 cadence: 'cadences',
                 power: 'powers',
-                gpsaccuracy: 'gpsAccuracies'
+                gpsaccuracy: 'gpsAccuracies',
+                battery: 'batteryLevels'
             };
             btn.disabled = !hasMetric(propMap[metric]);
         });
@@ -2312,7 +2320,9 @@ class RouteOverlayApp {
             'Elevation Loss (m)',
             'Avg Heart Rate (bpm)',
             'Avg Cadence (spm)',
-            'Avg Power (W)'
+            'Avg Power (W)',
+            'Battery Start (%)',
+            'Battery End (%)'
         ];
 
         // Build rows
@@ -2321,6 +2331,9 @@ class RouteOverlayApp {
             const avgPace = avg(route.paces);
             const avgCadence = avg(route.cadences);
             const avgPower = avg(route.powers);
+            const validBattery = (route.batteryLevels || []).filter(v => v !== null && !isNaN(v));
+            const battStart = validBattery.length > 0 ? Math.round(validBattery[0]) : null;
+            const battEnd = validBattery.length > 0 ? Math.round(validBattery[validBattery.length - 1]) : null;
 
             return [
                 `"${route.displayName.replace(/"/g, '""')}"`,
@@ -2331,7 +2344,9 @@ class RouteOverlayApp {
                 Math.round(route.stats.elevationLoss),
                 avgHR ? Math.round(avgHR) : 'N/A',
                 avgCadence ? Math.round(avgCadence) : 'N/A',
-                avgPower ? Math.round(avgPower) : 'N/A'
+                avgPower ? Math.round(avgPower) : 'N/A',
+                battStart !== null ? battStart + '%' : 'N/A',
+                battEnd !== null ? battEnd + '%' : 'N/A'
             ];
         });
 

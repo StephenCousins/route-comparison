@@ -690,11 +690,12 @@ export class InsightsManager {
 
         // Calculate HR zones if available
         if (route.heartRates && route.heartRates.length > 10) {
-            const hrZones = Utils.calculateZones(route.heartRates, route.timestamps, 'heartRate');
+            const hrZones = Utils.calculateZones(route.heartRates, route.timestamps, 'heartRate', route.hrZoneBoundaries);
             if (hrZones) {
                 // Create zone distribution bar
                 const barHtml = this.createZoneBar(hrZones.zones);
-                insights.push(this.createZoneCard('HR Zones', barHtml, `${hrZones.minVal}-${hrZones.maxVal} bpm range`));
+                const zoneSource = route.hrZoneBoundaries ? 'device zones' : `${hrZones.minVal}-${hrZones.maxVal} bpm range`;
+                insights.push(this.createZoneCard('HR Zones', barHtml, zoneSource));
 
                 // Dominant zone insight
                 const dominant = hrZones.zones[hrZones.dominantZone - 1];
@@ -721,7 +722,7 @@ export class InsightsManager {
 
         // Calculate Power zones if available
         if (route.powers && route.powers.length > 10) {
-            const powerZones = Utils.calculateZones(route.powers, route.timestamps, 'power');
+            const powerZones = Utils.calculateZones(route.powers, route.timestamps, 'power', route.powerZoneBoundaries);
             if (powerZones) {
                 const barHtml = this.createZoneBar(powerZones.zones);
                 insights.push(this.createZoneCard('Power Zones', barHtml, `${powerZones.minVal}-${powerZones.maxVal}W range`));

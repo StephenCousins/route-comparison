@@ -280,6 +280,7 @@ export class ChartManager {
                 case 'cadence': metricData = route.cadences; break;
                 case 'power': metricData = route.powers; break;
                 case 'gpsaccuracy': metricData = route.gpsAccuracies; break;
+                case 'battery': metricData = route.batteryLevels; break;
             }
 
             const totalDist = distances[distances.length - 1];

@@ -1656,51 +1656,83 @@ export const Utils = {
     },
 
     // Zone Analysis
-    calculateZones(values, timestamps, metricType = 'heartRate') {
-        // Filter valid values
+    calculateZones(values, timestamps, metricType = 'heartRate', zoneBoundaries = null) {
         const validValues = values.filter(v => v !== null && v > 0);
         if (validValues.length < 10) return null;
 
         const minVal = Math.min(...validValues);
         const maxVal = Math.max(...validValues);
-        const range = maxVal - minVal;
+        if (maxVal === minVal) return null;
 
-        if (range === 0) return null;
-
-        // Define 5 zones
-        const zoneNames = ['Recovery', 'Endurance', 'Tempo', 'Threshold', 'Max'];
         const zoneColors = ['#34A853', '#4285F4', '#FBBC04', '#FF9800', '#EA4335'];
 
-        const zones = [];
-        for (let i = 0; i < 5; i++) {
-            zones.push({
-                zone: i + 1,
-                name: zoneNames[i],
-                color: zoneColors[i],
-                min: Math.round(minVal + range * (i * 0.2)),
-                max: Math.round(minVal + range * ((i + 1) * 0.2)),
-                time: 0,
-                points: 0
-            });
+        let zones;
+
+        if (zoneBoundaries && zoneBoundaries.length >= 2) {
+            // Use device-provided zone boundaries (from FIT hr_zone/power_zone messages).
+            // Each boundary has {high, name}; zone N spans from boundary[N-1].high to boundary[N].high.
+            const numZones = Math.min(zoneBoundaries.length, 5);
+            zones = [];
+            for (let i = 0; i < numZones; i++) {
+                const lo = i === 0 ? 0 : zoneBoundaries[i - 1].high;
+                const hi = zoneBoundaries[i].high;
+                const defaultNames = metricType === 'heartRate'
+                    ? ['Warm Up', 'Easy', 'Aerobic', 'Threshold', 'Maximum']
+                    : ['Recovery', 'Endurance', 'Tempo', 'Threshold', 'Max'];
+                zones.push({
+                    zone: i + 1,
+                    name: zoneBoundaries[i].name || defaultNames[i] || `Zone ${i + 1}`,
+                    color: zoneColors[i] || '#888',
+                    min: Math.round(lo),
+                    max: i === numZones - 1 ? Math.round(hi) : Math.round(hi),
+                    time: 0,
+                    points: 0
+                });
+            }
+        } else {
+            // Fallback: standard percentage-of-max zones
+            const hrZoneThresholds = [0.50, 0.60, 0.70, 0.80, 0.90, 1.00];
+            const powerZoneThresholds = [0.55, 0.75, 0.90, 1.05, 1.20, 2.00];
+            const thresholds = metricType === 'heartRate' ? hrZoneThresholds : powerZoneThresholds;
+            const defaultNames = metricType === 'heartRate'
+                ? ['Warm Up', 'Easy', 'Aerobic', 'Threshold', 'Maximum']
+                : ['Recovery', 'Endurance', 'Tempo', 'Threshold', 'Max'];
+
+            zones = [];
+            for (let i = 0; i < 5; i++) {
+                zones.push({
+                    zone: i + 1,
+                    name: defaultNames[i],
+                    color: zoneColors[i],
+                    min: Math.round(maxVal * thresholds[i]),
+                    max: Math.round(maxVal * thresholds[i + 1]),
+                    time: 0,
+                    points: 0
+                });
+            }
         }
 
         // Count time/points in each zone
         let totalTime = 0;
-        let hasTimestamps = timestamps && timestamps.length === values.length;
+        const hasTimestamps = timestamps && timestamps.length === values.length;
 
         for (let i = 0; i < values.length; i++) {
             const val = values[i];
             if (val === null || val <= 0) continue;
 
             // Find which zone this value belongs to
-            const normalized = (val - minVal) / range;
-            const zoneIdx = Math.min(4, Math.floor(normalized * 5));
+            let zoneIdx = 0;
+            for (let z = zones.length - 1; z >= 0; z--) {
+                if (val >= zones[z].min) {
+                    zoneIdx = z;
+                    break;
+                }
+            }
 
-            // Calculate time delta
-            let timeDelta = 1; // Default to 1 unit if no timestamps
+            let timeDelta = 1;
             if (hasTimestamps && i > 0 && timestamps[i] && timestamps[i - 1]) {
-                timeDelta = (timestamps[i] - timestamps[i - 1]) / 1000; // seconds
-                if (timeDelta < 0 || timeDelta > 60) timeDelta = 1; // Sanity check
+                timeDelta = (timestamps[i] - timestamps[i - 1]) / 1000;
+                if (timeDelta < 0 || timeDelta > 60) timeDelta = 1;
             }
 
             zones[zoneIdx].time += timeDelta;
@@ -1708,21 +1740,19 @@ export const Utils = {
             totalTime += timeDelta;
         }
 
-        // Calculate percentages
         zones.forEach(z => {
             z.percent = totalTime > 0 ? Math.round((z.time / totalTime) * 100) : 0;
         });
 
-        // Find dominant zone
         const dominantZone = zones.reduce((max, z) => z.time > max.time ? z : max, zones[0]);
 
         return {
-            zones: zones,
-            totalTime: totalTime,
+            zones,
+            totalTime,
             dominantZone: dominantZone.zone,
             metric: metricType,
-            minVal: minVal,
-            maxVal: maxVal
+            minVal,
+            maxVal
         };
     },
 

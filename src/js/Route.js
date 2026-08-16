@@ -13,6 +13,9 @@ export class Route {
         this.cadences = data.cadences || [];
         this.powers = data.powers || [];
         this.gpsAccuracies = data.gpsAccuracies || [];
+        this.batteryLevels = data.batteryLevels || [];
+        this.hrZoneBoundaries = data.hrZoneBoundaries || null;
+        this.powerZoneBoundaries = data.powerZoneBoundaries || null;
         this.device = data.device || null;
         this.sessionSummary = data.sessionSummary || null;
         this.verticalOscillations = data.verticalOscillations || [];

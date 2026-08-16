@@ -265,6 +265,96 @@ export class FileParser {
         return { manufacturer, productName, firmwareVersion, serialNumber };
     }
 
+    // Extract per-trackpoint battery levels from a FIT file.
+    // Newer devices write battery_soc (%) in every record; older ones log
+    // battery_voltage in periodic device_info messages. When only voltage
+    // snapshots exist, linearly interpolate them across the trackpoint
+    // timestamps to produce a per-point array.
+    static buildBatteryLevels(data, timestamps) {
+        const records = data.records || [];
+
+        // 1. Try per-record battery_soc (percentage, 0-100)
+        const perRecordSoc = [];
+        let hasPerRecord = false;
+        let recIdx = 0;
+        records.forEach(record => {
+            if (record.position_lat !== undefined && record.position_long !== undefined) {
+                const lat = record.position_lat;
+                const lng = record.position_long;
+                if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+                    const soc = record.battery_soc ?? null;
+                    if (soc !== null) hasPerRecord = true;
+                    perRecordSoc.push(soc);
+                }
+            }
+        });
+        if (hasPerRecord) return perRecordSoc;
+
+        // 2. Fall back to device_info battery_voltage snapshots
+        const deviceInfos = data.device_infos || [];
+        const snapshots = [];
+        for (const di of deviceInfos) {
+            if (di.battery_voltage != null && di.timestamp) {
+                snapshots.push({ time: new Date(di.timestamp).getTime(), voltage: di.battery_voltage });
+            }
+        }
+        if (snapshots.length < 2) return new Array(timestamps.length).fill(null);
+
+        snapshots.sort((a, b) => a.time - b.time);
+
+        // Convert voltage to a relative 0-100% scale using the observed range
+        const minV = snapshots[snapshots.length - 1].voltage;
+        const maxV = snapshots[0].voltage;
+        const rangeV = maxV - minV;
+
+        // Interpolate to each trackpoint timestamp
+        return timestamps.map(ts => {
+            if (!ts) return null;
+            const t = ts.getTime();
+            if (t <= snapshots[0].time) {
+                return rangeV > 0 ? ((snapshots[0].voltage - minV) / rangeV) * 100 : 100;
+            }
+            if (t >= snapshots[snapshots.length - 1].time) {
+                return rangeV > 0 ? ((snapshots[snapshots.length - 1].voltage - minV) / rangeV) * 100 : 0;
+            }
+            // Find surrounding snapshots
+            for (let i = 0; i < snapshots.length - 1; i++) {
+                if (t >= snapshots[i].time && t <= snapshots[i + 1].time) {
+                    const frac = (t - snapshots[i].time) / (snapshots[i + 1].time - snapshots[i].time);
+                    const v = snapshots[i].voltage + frac * (snapshots[i + 1].voltage - snapshots[i].voltage);
+                    return rangeV > 0 ? ((v - minV) / rangeV) * 100 : 100;
+                }
+            }
+            return null;
+        });
+    }
+
+    // Extract HR zone boundaries from FIT hr_zone messages.
+    // Each message has a high_bpm (upper bound) and optionally a name.
+    // Returns an array of {high, name} sorted by zone index, or null.
+    static buildHrZoneBoundaries(data) {
+        const hrZones = data.hr_zones || [];
+        if (hrZones.length < 2) return null;
+        const sorted = [...hrZones].sort((a, b) =>
+            (a.message_index ?? 0) - (b.message_index ?? 0));
+        const boundaries = sorted
+            .filter(z => z.high_bpm != null)
+            .map(z => ({ high: z.high_bpm, name: z.name || null }));
+        return boundaries.length >= 2 ? boundaries : null;
+    }
+
+    // Extract power zone boundaries from FIT power_zone messages.
+    static buildPowerZoneBoundaries(data) {
+        const pZones = data.power_zones || [];
+        if (pZones.length < 2) return null;
+        const sorted = [...pZones].sort((a, b) =>
+            (a.message_index ?? 0) - (b.message_index ?? 0));
+        const boundaries = sorted
+            .filter(z => z.high_value != null)
+            .map(z => ({ high: z.high_value, name: z.name || null }));
+        return boundaries.length >= 2 ? boundaries : null;
+    }
+
     // Build a self-reported totals summary from the FIT session message, used
     // to cross-check against values recomputed from the raw track — a
     // discrepancy there is a firmware self-reporting bug by definition.
@@ -311,6 +401,9 @@ export class FileParser {
 
                 const device = this.buildDeviceInfo(data);
                 const sessionSummary = this.buildSessionSummary(data);
+                const hrZoneBoundaries = this.buildHrZoneBoundaries(data);
+                const powerZoneBoundaries = this.buildPowerZoneBoundaries(data);
+                // Battery levels are extracted after timestamps are collected (below)
 
                 const coordinates = [], elevations = [], timestamps = [];
                 const heartRates = [], cadences = [], powers = [], speeds = [], paces = [];
@@ -355,6 +448,8 @@ export class FileParser {
                     return;
                 }
 
+                const batteryLevels = this.buildBatteryLevels(data, timestamps);
+
                 // Clean GPS data (filter outliers and smooth)
                 const cleanedData = Utils.cleanGPSData(speeds, paces, coordinates, timestamps, VALIDATION.MAX_SPEED_KMH);
                 const smoothedSpeeds = Utils.rollingMedian(cleanedData.speeds, 5);
@@ -373,7 +468,8 @@ export class FileParser {
                     groundContactTime: `${countValid(groundContactTimes)}/${coordinates.length}`,
                     verticalRatio: `${countValid(verticalRatios)}/${coordinates.length}`,
                     groundContactBalance: `${countValid(groundContactBalances)}/${coordinates.length}`,
-                    stepLength: `${countValid(stepLengths)}/${coordinates.length}`
+                    stepLength: `${countValid(stepLengths)}/${coordinates.length}`,
+                    battery: `${countValid(batteryLevels)}/${coordinates.length}`
                 });
                 if (records[0]) {
                     console.log('  First record\'s raw field keys (for diagnosing missing metrics):', Object.keys(records[0]));
@@ -384,7 +480,8 @@ export class FileParser {
                     {
                         gpsAccuracies, device, sessionSummary,
                         verticalOscillations, groundContactTimes, verticalRatios,
-                        groundContactBalances, stepLengths, absolutePressures
+                        groundContactBalances, stepLengths, absolutePressures,
+                        batteryLevels, hrZoneBoundaries, powerZoneBoundaries
                     }));
             });
         });
@@ -394,7 +491,8 @@ export class FileParser {
         heartRates, cadences, powers, speeds, paces, {
             gpsAccuracies = [], device = null, sessionSummary = null,
             verticalOscillations = [], groundContactTimes = [], verticalRatios = [],
-            groundContactBalances = [], stepLengths = [], absolutePressures = []
+            groundContactBalances = [], stepLengths = [], absolutePressures = [],
+            batteryLevels = [], hrZoneBoundaries = null, powerZoneBoundaries = null
         } = {}) {
         const distance = Utils.calculateDistance(coordinates);
         const elevStats = Utils.calculateElevationStats(elevations);
@@ -414,6 +512,9 @@ export class FileParser {
             cadences,
             powers,
             gpsAccuracies,
+            batteryLevels,
+            hrZoneBoundaries,
+            powerZoneBoundaries,
             device,
             sessionSummary,
             verticalOscillations,
