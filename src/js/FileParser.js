@@ -330,30 +330,66 @@ export class FileParser {
         });
     }
 
-    // Extract HR zone boundaries from FIT hr_zone messages.
-    // Each message has a high_bpm (upper bound) and optionally a name.
-    // Returns an array of {high, name} sorted by zone index, or null.
+    // Extract HR zone boundaries from a FIT file.
+    // Priority: explicit hr_zone messages > computed from zones_target + user_profile.
     static buildHrZoneBoundaries(data) {
+        // 1. Try explicit hr_zone messages (some devices write them)
         const hrZones = data.hr_zones || [];
-        if (hrZones.length < 2) return null;
-        const sorted = [...hrZones].sort((a, b) =>
-            (a.message_index ?? 0) - (b.message_index ?? 0));
-        const boundaries = sorted
-            .filter(z => z.high_bpm != null)
-            .map(z => ({ high: z.high_bpm, name: z.name || null }));
-        return boundaries.length >= 2 ? boundaries : null;
+        if (hrZones.length >= 2) {
+            const sorted = [...hrZones].sort((a, b) =>
+                (a.message_index ?? 0) - (b.message_index ?? 0));
+            const boundaries = sorted
+                .filter(z => z.high_bpm != null)
+                .map(z => ({ high: z.high_bpm, name: z.name || null }));
+            if (boundaries.length >= 2) return boundaries;
+        }
+
+        // 2. Compute from zones_target + user_profile
+        const zt = data.zones_target;
+        if (!zt || !zt.max_heart_rate) return null;
+        const maxHR = zt.max_heart_rate;
+        const restingHR = data.user_profile?.resting_heart_rate ?? null;
+        const names = ['Warm Up', 'Easy', 'Aerobic', 'Threshold', 'Maximum'];
+
+        if (zt.hr_calc_type === 'percent_hrr' && restingHR != null) {
+            const hrr = maxHR - restingHR;
+            const pcts = [0.60, 0.70, 0.80, 0.90, 1.00];
+            return pcts.map((p, i) => ({
+                high: Math.round(restingHR + hrr * p),
+                name: names[i]
+            }));
+        }
+
+        // percent_max_hr or unknown — use %max
+        const pcts = [0.60, 0.70, 0.80, 0.90, 1.00];
+        return pcts.map((p, i) => ({
+            high: Math.round(maxHR * p),
+            name: names[i]
+        }));
     }
 
-    // Extract power zone boundaries from FIT power_zone messages.
+    // Extract power zone boundaries from a FIT file.
+    // Priority: explicit power_zone messages > computed from zones_target FTP.
     static buildPowerZoneBoundaries(data) {
         const pZones = data.power_zones || [];
-        if (pZones.length < 2) return null;
-        const sorted = [...pZones].sort((a, b) =>
-            (a.message_index ?? 0) - (b.message_index ?? 0));
-        const boundaries = sorted
-            .filter(z => z.high_value != null)
-            .map(z => ({ high: z.high_value, name: z.name || null }));
-        return boundaries.length >= 2 ? boundaries : null;
+        if (pZones.length >= 2) {
+            const sorted = [...pZones].sort((a, b) =>
+                (a.message_index ?? 0) - (b.message_index ?? 0));
+            const boundaries = sorted
+                .filter(z => z.high_value != null)
+                .map(z => ({ high: z.high_value, name: z.name || null }));
+            if (boundaries.length >= 2) return boundaries;
+        }
+
+        const zt = data.zones_target;
+        if (!zt || !zt.functional_threshold_power) return null;
+        const ftp = zt.functional_threshold_power;
+        const pcts = [0.55, 0.75, 0.90, 1.05, 1.20];
+        const names = ['Recovery', 'Endurance', 'Tempo', 'Threshold', 'Max'];
+        return pcts.map((p, i) => ({
+            high: Math.round(ftp * p),
+            name: names[i]
+        }));
     }
 
     // Build a self-reported totals summary from the FIT session message, used
