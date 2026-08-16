@@ -8,7 +8,7 @@ import { Utils } from './utils.js';
 let fitParserPromise = null;
 function loadFitParser() {
     if (!fitParserPromise) {
-        fitParserPromise = import('https://esm.run/fit-file-parser@1.9.0')
+        fitParserPromise = import('https://esm.run/fit-file-parser@4.1.0')
             .then((mod) => {
                 // fit-file-parser ships CommonJS with `exports.default = FitParser`,
                 // so the CDN's ESM default is `{ default: FitParser }` — the real
@@ -331,10 +331,23 @@ export class FileParser {
     }
 
     // Extract HR zone boundaries from a FIT file.
-    // Priority: explicit hr_zone messages > computed from zones_target + user_profile.
+    // Priority: time_in_zone (exact device boundaries) > hr_zone messages
+    //         > computed from zones_target + user_profile.
     static buildHrZoneBoundaries(data) {
-        // 1. Try explicit hr_zone messages (some devices write them)
-        const hrZones = data.hr_zones || [];
+        const names = ['Warm Up', 'Easy', 'Aerobic', 'Threshold', 'Maximum'];
+
+        // 1. time_in_zone messages (Garmin Fenix 9, etc.) — contain the exact
+        //    zone boundaries the device used, in hr_zone_high_boundary.
+        const tiz = data.time_in_zone || data.time_in_zones || [];
+        if (tiz.length > 0 && tiz[0].hr_zone_high_boundary) {
+            const highs = tiz[0].hr_zone_high_boundary.filter(v => v != null);
+            if (highs.length >= 2) {
+                return highs.slice(0, 5).map((h, i) => ({ high: h, name: names[i] || `Zone ${i + 1}` }));
+            }
+        }
+
+        // 2. Explicit hr_zone messages (some devices write them)
+        const hrZones = data.hr_zones || data.hr_zone || [];
         if (hrZones.length >= 2) {
             const sorted = [...hrZones].sort((a, b) =>
                 (a.message_index ?? 0) - (b.message_index ?? 0));
@@ -344,12 +357,11 @@ export class FileParser {
             if (boundaries.length >= 2) return boundaries;
         }
 
-        // 2. Compute from zones_target + user_profile
+        // 3. Compute from zones_target + user_profile
         const zt = data.zones_target;
         if (!zt || !zt.max_heart_rate) return null;
         const maxHR = zt.max_heart_rate;
         const restingHR = data.user_profile?.resting_heart_rate ?? null;
-        const names = ['Warm Up', 'Easy', 'Aerobic', 'Threshold', 'Maximum'];
 
         if (zt.hr_calc_type === 'percent_hrr' && restingHR != null) {
             const hrr = maxHR - restingHR;
@@ -360,7 +372,6 @@ export class FileParser {
             }));
         }
 
-        // percent_max_hr or unknown — use %max
         const pcts = [0.60, 0.70, 0.80, 0.90, 1.00];
         return pcts.map((p, i) => ({
             high: Math.round(maxHR * p),
@@ -369,9 +380,21 @@ export class FileParser {
     }
 
     // Extract power zone boundaries from a FIT file.
-    // Priority: explicit power_zone messages > computed from zones_target FTP.
+    // Priority: time_in_zone > power_zone messages > computed from FTP.
     static buildPowerZoneBoundaries(data) {
-        const pZones = data.power_zones || [];
+        const names = ['Recovery', 'Endurance', 'Tempo', 'Threshold', 'Max'];
+
+        // 1. time_in_zone messages — exact device boundaries
+        const tiz = data.time_in_zone || data.time_in_zones || [];
+        if (tiz.length > 0 && tiz[0].power_zone_high_boundary) {
+            const highs = tiz[0].power_zone_high_boundary.filter(v => v != null);
+            if (highs.length >= 2) {
+                return highs.slice(0, 5).map((h, i) => ({ high: h, name: names[i] || `Zone ${i + 1}` }));
+            }
+        }
+
+        // 2. Explicit power_zone messages
+        const pZones = data.power_zones || data.power_zone || [];
         if (pZones.length >= 2) {
             const sorted = [...pZones].sort((a, b) =>
                 (a.message_index ?? 0) - (b.message_index ?? 0));
@@ -381,11 +404,11 @@ export class FileParser {
             if (boundaries.length >= 2) return boundaries;
         }
 
+        // 3. Compute from FTP
         const zt = data.zones_target;
         if (!zt || !zt.functional_threshold_power) return null;
         const ftp = zt.functional_threshold_power;
         const pcts = [0.55, 0.75, 0.90, 1.05, 1.20];
-        const names = ['Recovery', 'Endurance', 'Tempo', 'Threshold', 'Max'];
         return pcts.map((p, i) => ({
             high: Math.round(ftp * p),
             name: names[i]
