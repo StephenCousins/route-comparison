@@ -349,6 +349,11 @@ export class InsightsManager {
             insights.push(...cadenceInsights);
         }
 
+        if (route.powers && route.powers.length > 30) {
+            const powerInsights = this.calculatePowerInsights(route);
+            insights.push(...powerInsights);
+        }
+
         const quirkyStats = this.calculateQuirkyStats(route);
         insights.push(...quirkyStats);
 
@@ -527,6 +532,34 @@ export class InsightsManager {
                     insights.push(this.createInsightCard('positive', 'Optimal Cadence', `${Math.round(bestCadence)} spm`,
                         `Your fastest sections averaged this cadence`));
                 }
+            }
+        }
+
+        return insights;
+    }
+
+    calculatePowerInsights(route) {
+        const insights = [];
+        const validPower = route.powers.filter(p => p != null && !isNaN(p) && p >= 0);
+        if (validPower.length < 30) return insights;
+
+        const avgPower = validPower.reduce((a, b) => a + b, 0) / validPower.length;
+        const np = Utils.calculateNormalizedPower(route.powers, route.timestamps);
+
+        if (np) {
+            insights.push(this.createInsightCard('neutral', 'Normalized Power',
+                `${Math.round(np)}W`,
+                `Avg: ${Math.round(avgPower)}W | VI: ${(np / avgPower).toFixed(2)}`));
+
+            const vi = np / avgPower;
+            if (vi > 1.15) {
+                insights.push(this.createInsightCard('negative', 'Variable Effort',
+                    `VI ${vi.toFixed(2)}`,
+                    'High variability index — surging/recovering pattern'));
+            } else if (vi < 1.05) {
+                insights.push(this.createInsightCard('positive', 'Steady Power',
+                    `VI ${vi.toFixed(2)}`,
+                    'Excellent pacing — very even power output'));
             }
         }
 

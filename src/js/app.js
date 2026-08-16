@@ -939,6 +939,16 @@ class RouteOverlayApp {
         this.chartManager.show(validRoutes, metricType, config.label, config.format, this.autoAlignOffsets);
     }
 
+    compareMeanMaxPower() {
+        const selectedRoutes = this.routes.filter(r => r.selected);
+        const validRoutes = selectedRoutes.filter(r => r.powers && r.powers.length > 10);
+        if (validRoutes.length === 0) {
+            showToast('No selected routes have power data');
+            return;
+        }
+        this.chartManager.showMeanMaxPower(validRoutes);
+    }
+
     compareTimeGap() {
         const selectedRoutes = this.routes.filter(r => r.selected);
 
@@ -2226,6 +2236,11 @@ class RouteOverlayApp {
             autoAlignBtn.disabled = selectedRoutes.length < 2;
         }
 
+        const meanMaxBtn = document.querySelector('.comparison-meanmax-btn');
+        if (meanMaxBtn) {
+            meanMaxBtn.disabled = !selectedRoutes.some(r => r.powers && r.powers.length > 10);
+        }
+
         // Dynamics/Session Check/Dropout are per-route summaries, not a
         // "vs reference" comparison — any 1+ selected routes works (in
         // practice the panel itself only shows at 2+ selected anyway).
@@ -2322,7 +2337,9 @@ class RouteOverlayApp {
             'Avg Cadence (spm)',
             'Avg Power (W)',
             'Battery Start (%)',
-            'Battery End (%)'
+            'Battery End (%)',
+            'Battery Burn (%/hr)',
+            'Normalized Power (W)'
         ];
 
         // Build rows
@@ -2335,6 +2352,14 @@ class RouteOverlayApp {
             const battStart = validBattery.length > 0 ? Math.round(validBattery[0]) : null;
             const battEnd = validBattery.length > 0 ? Math.round(validBattery[validBattery.length - 1]) : null;
 
+            let burnRate = 'N/A';
+            if (battStart !== null && battEnd !== null && route.stats.duration > 0) {
+                const hrs = route.stats.duration / 3600;
+                burnRate = ((battStart - battEnd) / hrs).toFixed(2);
+            }
+
+            const np = Utils.calculateNormalizedPower(route.powers, route.timestamps);
+
             return [
                 `"${route.displayName.replace(/"/g, '""')}"`,
                 (route.stats.distance / 1000).toFixed(2),
@@ -2346,7 +2371,9 @@ class RouteOverlayApp {
                 avgCadence ? Math.round(avgCadence) : 'N/A',
                 avgPower ? Math.round(avgPower) : 'N/A',
                 battStart !== null ? battStart + '%' : 'N/A',
-                battEnd !== null ? battEnd + '%' : 'N/A'
+                battEnd !== null ? battEnd + '%' : 'N/A',
+                burnRate,
+                np ? Math.round(np) : 'N/A'
             ];
         });
 
@@ -2400,6 +2427,10 @@ window.closeDeviationModal = function() {
 
 window.autoAlign = function() {
     if (app) app.autoAlign();
+};
+
+window.compareMeanMaxPower = function() {
+    if (app) app.compareMeanMaxPower();
 };
 
 window.compareDistanceDrift = function() {

@@ -1756,6 +1756,98 @@ export const Utils = {
         };
     },
 
+    // Normalized Power (NP) — 30s rolling average raised to 4th power, averaged, then 4th-rooted.
+    calculateNormalizedPower(powers, timestamps) {
+        if (!powers || powers.length < 30) return null;
+        const valid = powers.map((p, i) => ({ p, t: timestamps?.[i] }))
+            .filter(v => v.p != null && !isNaN(v.p) && v.p >= 0);
+        if (valid.length < 30) return null;
+
+        // Determine sample interval (seconds) from timestamps if available
+        let intervalSec = 1;
+        if (timestamps && timestamps.length > 1) {
+            const diffs = [];
+            for (let i = 1; i < Math.min(100, timestamps.length); i++) {
+                if (timestamps[i] && timestamps[i - 1]) {
+                    const d = (timestamps[i] - timestamps[i - 1]) / 1000;
+                    if (d > 0 && d < 30) diffs.push(d);
+                }
+            }
+            if (diffs.length > 0) intervalSec = diffs.sort((a, b) => a - b)[Math.floor(diffs.length / 2)];
+        }
+
+        const windowSamples = Math.max(1, Math.round(30 / intervalSec));
+        const vals = valid.map(v => v.p);
+
+        // 30s rolling average
+        const rolling = [];
+        for (let i = 0; i < vals.length; i++) {
+            const start = Math.max(0, i - windowSamples + 1);
+            let sum = 0;
+            for (let j = start; j <= i; j++) sum += vals[j];
+            rolling.push(sum / (i - start + 1));
+        }
+
+        // 4th power average, then 4th root
+        let sum4 = 0;
+        for (const v of rolling) sum4 += v * v * v * v;
+        return Math.pow(sum4 / rolling.length, 0.25);
+    },
+
+    // Mean Max Power curve — best average power for every duration window.
+    calculateMeanMaxPower(powers, timestamps) {
+        if (!powers || powers.length < 2) return [];
+        const valid = [];
+        for (let i = 0; i < powers.length; i++) {
+            if (powers[i] != null && !isNaN(powers[i]) && powers[i] >= 0) {
+                valid.push(powers[i]);
+            }
+        }
+        if (valid.length < 2) return [];
+
+        // Determine sample interval
+        let intervalSec = 1;
+        if (timestamps && timestamps.length > 1) {
+            const diffs = [];
+            for (let i = 1; i < Math.min(100, timestamps.length); i++) {
+                if (timestamps[i] && timestamps[i - 1]) {
+                    const d = (timestamps[i] - timestamps[i - 1]) / 1000;
+                    if (d > 0 && d < 30) diffs.push(d);
+                }
+            }
+            if (diffs.length > 0) intervalSec = diffs.sort((a, b) => a - b)[Math.floor(diffs.length / 2)];
+        }
+
+        // Sample durations: 1s to full activity, on a log scale
+        const maxDurationSec = valid.length * intervalSec;
+        const durations = new Set();
+        for (let d = 1; d <= maxDurationSec; d++) {
+            if (d <= 10) durations.add(d);
+            else if (d <= 60) { durations.add(Math.round(d / 5) * 5); }
+            else if (d <= 600) { durations.add(Math.round(d / 15) * 15); }
+            else if (d <= 3600) { durations.add(Math.round(d / 60) * 60); }
+            else { durations.add(Math.round(d / 300) * 300); }
+        }
+        durations.add(Math.round(maxDurationSec));
+
+        const result = [];
+        // Prefix sums for O(1) window averages
+        const prefix = [0];
+        for (let i = 0; i < valid.length; i++) prefix.push(prefix[i] + valid[i]);
+
+        for (const durationSec of [...durations].sort((a, b) => a - b)) {
+            const windowSamples = Math.max(1, Math.round(durationSec / intervalSec));
+            if (windowSamples > valid.length) break;
+            let bestAvg = 0;
+            for (let i = 0; i <= valid.length - windowSamples; i++) {
+                const avg = (prefix[i + windowSamples] - prefix[i]) / windowSamples;
+                if (avg > bestAvg) bestAvg = avg;
+            }
+            result.push({ durationSec, power: bestAvg });
+        }
+        return result;
+    },
+
     // Effort Score Calculation
     calculateEffortScore(route) {
         let score = 0;

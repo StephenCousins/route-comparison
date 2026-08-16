@@ -112,6 +112,7 @@
                     <button class="cmp-btn cmp-btn--analyse comparison-deviation-btn" data-metric="deviation" title="How far each route strays sideways from the reference route (GPS accuracy). Needs 2+ selected routes" onclick="compareDeviation()">Deviation</button>
                     <button class="cmp-btn cmp-btn--analyse comparison-drift-btn" data-metric="drift" title="Whether a device's odometer reads long or short over time vs the reference route. Needs 2+ routes with recorded time" onclick="compareDistanceDrift()">Distance Drift</button>
                     <button class="cmp-btn cmp-btn--analyse comparison-autoalign-btn" data-metric="autoalign" title="Automatically aligns routes for Time Gap/Race/charts and shows the result as a notification — doesn't open a panel. Needs 2+ selected routes" onclick="autoAlign()">Auto-Align</button>
+                    <button class="cmp-btn cmp-btn--analyse comparison-meanmax-btn" data-metric="meanmax" title="Best average power across all duration windows — the power-duration curve. Needs 1+ selected route with power data" onclick="compareMeanMaxPower()">Power Curve</button>
                 </div>
                 <div class="cmp-group" role="group" aria-label="Validate">
                     <span class="cmp-group-label">Validate</span>
@@ -142,9 +143,16 @@
             <canvas id="elevationChart"></canvas>
             <div class="chart-controls">
                 <button id="dragModeBtn" class="chart-control-btn">Drag to Align</button>
+                <button id="rangeModeBtn" class="chart-control-btn">Range Stats</button>
                 <button id="resetZoomBtn" class="chart-control-btn" disabled>Reset Zoom</button>
                 <button id="resetOffsetsBtn" class="chart-control-btn" disabled>Reset Offsets</button>
+                <label class="chart-control-slider" title="Extra data smoothing — 0 keeps the default, higher values apply heavier rolling average">
+                    Smooth
+                    <input type="range" id="smoothSlider" min="0" max="10" value="0">
+                    <span id="smoothValue">0</span>
+                </label>
             </div>
+            <div id="rangeStatsPanel" class="range-stats-panel" style="display:none;"></div>
             <div id="zoomInstructions" style="text-align: center; margin-top: 10px; color: #666; font-size: 12px;">
                 Click and drag to zoom into a region
             </div>

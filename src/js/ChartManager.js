@@ -20,6 +20,9 @@ export class ChartManager {
         this.dragStartX = null;
         this.dragStartOffset = 0;
         this.animationFrameId = null;
+        this.smoothingLevel = 0; // 0 = default adaptive, higher = more smoothing
+        this.rangeMode = false;
+        this.rangeSelection = null; // { startDist, endDist }
 
         // Initialize shared event handler for zoom/crosshair
         this.eventHandler = new ChartEventHandler({
@@ -43,6 +46,8 @@ export class ChartManager {
         if (!this.currentData) return;
         if (this.currentData.isTimeGap) {
             this.drawTimeGapChart(this.currentData.timeGapData);
+        } else if (this.currentData.isMeanMax) {
+            this.drawMeanMaxPower(this.currentData.routes);
         } else {
             this.drawChart(
                 this.currentData.routes,
@@ -73,8 +78,14 @@ export class ChartManager {
         this.modal.querySelector('.modal-close').addEventListener('click', () => this.close());
 
         document.getElementById('dragModeBtn').addEventListener('click', () => this.toggleDragMode());
+        document.getElementById('rangeModeBtn').addEventListener('click', () => this.toggleRangeMode());
         document.getElementById('resetZoomBtn').addEventListener('click', () => this.resetZoom());
         document.getElementById('resetOffsetsBtn').addEventListener('click', () => this.resetOffsets());
+        document.getElementById('smoothSlider').addEventListener('input', (e) => {
+            this.smoothingLevel = parseInt(e.target.value);
+            document.getElementById('smoothValue').textContent = this.smoothingLevel;
+            this.redrawChart();
+        });
 
         this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
         this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
@@ -101,10 +112,13 @@ export class ChartManager {
         this.zoomState = null;
         this.currentData = null;
         this.dragMode = false;
+        this.rangeMode = false;
+        this.rangeSelection = null;
         this.selectedRouteForDrag = null;
         this.routeOffsets = {};
         this.initialOffsets = {};
         this.isDragging = false;
+        this.smoothingLevel = 0;
         this.eventHandler.resetSelection();
         this.eventHandler.originalImage = null;
 
@@ -112,6 +126,10 @@ export class ChartManager {
         document.getElementById('resetOffsetsBtn').disabled = true;
         document.getElementById('dragModeBtn').classList.remove('active');
         document.getElementById('dragModeBtn').textContent = 'Drag to Align';
+        document.getElementById('rangeModeBtn').classList.remove('active');
+        document.getElementById('rangeStatsPanel').style.display = 'none';
+        document.getElementById('smoothSlider').value = 0;
+        document.getElementById('smoothValue').textContent = '0';
 
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
@@ -183,6 +201,9 @@ export class ChartManager {
             }
         } else if (!this.dragMode) {
             this.eventHandler.startSelection(x, y);
+            if (this.rangeMode) {
+                this.rangeSelectionStartX = x;
+            }
         }
     }
 
@@ -224,6 +245,15 @@ export class ChartManager {
                 this.animationFrameId = null;
             }
             this.redrawChart();
+        } else if (this.rangeMode && this.eventHandler.isSelecting) {
+            const rect = this.canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const zoomResult = this.eventHandler.endSelection(x);
+            if (zoomResult) {
+                this.rangeSelection = zoomResult;
+                this.showRangeStats(zoomResult.minDistance, zoomResult.maxDistance);
+                this.redrawChart();
+            }
         } else {
             // Delegate to shared event handler for zoom selection
             const rect = this.canvas.getBoundingClientRect();
@@ -285,7 +315,8 @@ export class ChartManager {
 
             const totalDist = distances[distances.length - 1];
             const { windowSize, decimationFactor } = Utils.getAdaptiveSmoothingParams(totalDist);
-            const smoothed = Utils.smoothData(metricData, windowSize);
+            const effectiveWindow = windowSize * (1 + this.smoothingLevel * 0.5);
+            const smoothed = Utils.smoothData(metricData, Math.round(effectiveWindow));
             const { data: finalData, distances: finalDistances } = Utils.decimateData(smoothed, distances, decimationFactor);
 
             const offset = this.routeOffsets[route.filename] || 0;
@@ -450,6 +481,19 @@ export class ChartManager {
         this.ctx.font = `14px ${theme.font}`;
         this.ctx.textAlign = 'center';
         this.ctx.fillText('Distance', this.canvas.width / 2, this.canvas.height - 10);
+
+        // Draw range selection highlight
+        if (this.rangeSelection && maxDistance > 0) {
+            const x1 = padding.left + (this.rangeSelection.minDistance / maxDistance) * chartWidth;
+            const x2 = padding.left + (this.rangeSelection.maxDistance / maxDistance) * chartWidth;
+            this.ctx.fillStyle = 'rgba(26, 115, 232, 0.12)';
+            this.ctx.fillRect(x1, padding.top, x2 - x1, chartHeight);
+            this.ctx.strokeStyle = 'rgba(26, 115, 232, 0.5)';
+            this.ctx.lineWidth = 1;
+            this.ctx.setLineDash([4, 4]);
+            this.ctx.strokeRect(x1, padding.top, x2 - x1, chartHeight);
+            this.ctx.setLineDash([]);
+        }
 
         this.updateLegend();
         this.eventHandler.saveCanvasState();
@@ -688,6 +732,223 @@ export class ChartManager {
         });
     }
 
+    showMeanMaxPower(routes) {
+        document.getElementById('modalTitle').textContent =
+            `Power Curve ${routes.length > 1 ? `(${routes.length} routes)` : `: ${routes[0].displayName}`}`;
+        this.modal.classList.add('show');
+        this.drawMeanMaxPower(routes);
+    }
+
+    drawMeanMaxPower(routes) {
+        this.currentData = { routes, isMeanMax: true };
+
+        this.canvas.width = this.canvas.offsetWidth;
+        this.canvas.height = this.canvas.offsetHeight;
+
+        const padding = { left: 70, right: 40, top: 50, bottom: 70 };
+        const chartWidth = this.canvas.width - padding.left - padding.right;
+        const chartHeight = this.canvas.height - padding.top - padding.bottom;
+
+        const curves = routes.map(route => ({
+            ...route,
+            mmData: Utils.calculateMeanMaxPower(route.powers, route.timestamps)
+        })).filter(r => r.mmData.length > 0);
+
+        if (curves.length === 0) return;
+
+        let globalMaxPower = 0;
+        let globalMaxDuration = 0;
+        curves.forEach(c => {
+            c.mmData.forEach(p => {
+                if (p.power > globalMaxPower) globalMaxPower = p.power;
+                if (p.durationSec > globalMaxDuration) globalMaxDuration = p.durationSec;
+            });
+        });
+        globalMaxPower *= 1.1;
+
+        const logMin = 0; // log10(1) = 0
+        const logMax = Math.log10(globalMaxDuration);
+
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        const theme = this.getChartTheme();
+
+        // Grid
+        this.ctx.strokeStyle = theme.grid;
+        this.ctx.lineWidth = 1;
+
+        // Y-axis grid (power)
+        for (let i = 0; i <= 5; i++) {
+            const y = padding.top + (chartHeight / 5) * i;
+            this.ctx.beginPath();
+            this.ctx.moveTo(padding.left, y);
+            this.ctx.lineTo(padding.left + chartWidth, y);
+            this.ctx.stroke();
+
+            const value = globalMaxPower - (globalMaxPower / 5) * i;
+            this.ctx.fillStyle = theme.text;
+            this.ctx.font = `11px ${theme.font}`;
+            this.ctx.textAlign = 'right';
+            this.ctx.fillText(Math.round(value) + 'W', padding.left - 8, y + 4);
+        }
+
+        // X-axis: log-scale duration labels
+        const durationLabels = [
+            { sec: 1, label: '1s' }, { sec: 5, label: '5s' },
+            { sec: 15, label: '15s' }, { sec: 30, label: '30s' },
+            { sec: 60, label: '1m' }, { sec: 120, label: '2m' },
+            { sec: 300, label: '5m' }, { sec: 600, label: '10m' },
+            { sec: 1200, label: '20m' }, { sec: 1800, label: '30m' },
+            { sec: 3600, label: '1h' }, { sec: 7200, label: '2h' },
+            { sec: 14400, label: '4h' }
+        ].filter(d => d.sec <= globalMaxDuration * 1.2);
+
+        durationLabels.forEach(d => {
+            const logPos = Math.log10(d.sec);
+            const x = padding.left + ((logPos - logMin) / (logMax - logMin)) * chartWidth;
+            if (x < padding.left || x > padding.left + chartWidth) return;
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, padding.top);
+            this.ctx.lineTo(x, padding.top + chartHeight);
+            this.ctx.stroke();
+
+            this.ctx.fillStyle = theme.text;
+            this.ctx.font = `11px ${theme.font}`;
+            this.ctx.textAlign = 'center';
+            this.ctx.fillText(d.label, x, this.canvas.height - padding.bottom + 20);
+        });
+
+        // Draw curves
+        curves.forEach(curve => {
+            this.ctx.strokeStyle = curve.color;
+            this.ctx.lineWidth = 2;
+            this.ctx.beginPath();
+
+            let first = true;
+            curve.mmData.forEach(p => {
+                if (p.durationSec < 1) return;
+                const logPos = Math.log10(p.durationSec);
+                const x = padding.left + ((logPos - logMin) / (logMax - logMin)) * chartWidth;
+                const y = padding.top + chartHeight - (p.power / globalMaxPower) * chartHeight;
+                if (first) { this.ctx.moveTo(x, y); first = false; }
+                else this.ctx.lineTo(x, y);
+            });
+            this.ctx.stroke();
+
+            // Fill under curve for single route
+            if (curves.length === 1) {
+                this.ctx.globalAlpha = 0.15;
+                this.ctx.lineTo(
+                    padding.left + ((Math.log10(curve.mmData[curve.mmData.length - 1].durationSec) - logMin) / (logMax - logMin)) * chartWidth,
+                    padding.top + chartHeight
+                );
+                this.ctx.lineTo(padding.left, padding.top + chartHeight);
+                this.ctx.closePath();
+                this.ctx.fillStyle = curve.color;
+                this.ctx.fill();
+                this.ctx.globalAlpha = 1.0;
+            }
+        });
+
+        // Axes
+        this.ctx.strokeStyle = theme.axis;
+        this.ctx.lineWidth = 2;
+        this.ctx.beginPath();
+        this.ctx.moveTo(padding.left, padding.top);
+        this.ctx.lineTo(padding.left, padding.top + chartHeight);
+        this.ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
+        this.ctx.stroke();
+
+        // Labels
+        this.ctx.save();
+        this.ctx.translate(20, this.canvas.height / 2);
+        this.ctx.rotate(-Math.PI / 2);
+        this.ctx.fillStyle = theme.text;
+        this.ctx.font = `14px ${theme.font}`;
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Power (W)', 0, 0);
+        this.ctx.restore();
+
+        this.ctx.fillStyle = theme.axis;
+        this.ctx.font = `14px ${theme.font}`;
+        this.ctx.textAlign = 'center';
+        this.ctx.fillText('Duration', this.canvas.width / 2, this.canvas.height - 10);
+
+        // Legend
+        const legend = document.getElementById('chartLegend');
+        legend.innerHTML = '';
+        curves.forEach(curve => {
+            const item = document.createElement('div');
+            item.className = 'legend-item';
+            const color = document.createElement('div');
+            color.className = 'legend-color';
+            color.style.background = curve.color;
+            const label = document.createElement('span');
+            label.className = 'legend-label';
+            const peak = curve.mmData.length > 0 ? Math.round(curve.mmData[0].power) : 0;
+            const np = Utils.calculateNormalizedPower(curve.powers, curve.timestamps);
+            label.textContent = `${curve.displayName} (Peak: ${peak}W${np ? `, NP: ${Math.round(np)}W` : ''})`;
+            item.appendChild(color);
+            item.appendChild(label);
+            legend.appendChild(item);
+        });
+
+        this.eventHandler.saveCanvasState();
+    }
+
+    toggleRangeMode() {
+        this.rangeMode = !this.rangeMode;
+        const btn = document.getElementById('rangeModeBtn');
+        const instructions = document.getElementById('zoomInstructions');
+        const panel = document.getElementById('rangeStatsPanel');
+
+        if (this.rangeMode) {
+            if (this.dragMode) this.toggleDragMode();
+            btn.classList.add('active');
+            instructions.textContent = 'Click and drag to select a range for stats';
+        } else {
+            btn.classList.remove('active');
+            this.rangeSelection = null;
+            panel.style.display = 'none';
+            instructions.textContent = 'Click and drag to zoom into a region';
+            this.redrawChart();
+        }
+    }
+
+    showRangeStats(startDist, endDist) {
+        if (!this.currentData) return;
+        const panel = document.getElementById('rangeStatsPanel');
+        const { processedRoutes, metricType, formatValue } = this.currentData;
+        const minD = Math.min(startDist, endDist);
+        const maxD = Math.max(startDist, endDist);
+
+        let html = '<div class="range-stats-grid">';
+        processedRoutes.forEach(route => {
+            const values = [];
+            for (let i = 0; i < route.cumulativeDistances.length; i++) {
+                const d = route.cumulativeDistances[i];
+                if (d >= minD && d <= maxD && route.metricData[i] != null && !isNaN(route.metricData[i])) {
+                    values.push(route.metricData[i]);
+                }
+            }
+            if (values.length === 0) return;
+
+            const avg = values.reduce((a, b) => a + b, 0) / values.length;
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            const rangeDist = maxD - minD;
+
+            html += `<div class="range-stats-route" style="border-left: 3px solid ${route.color}">
+                <strong>${route.displayName}</strong>
+                <span>${Utils.formatDistance(minD)} - ${Utils.formatDistance(maxD)} (${Utils.formatDistance(rangeDist)})</span>
+                <span>Avg: ${formatValue(avg)} | Min: ${formatValue(min)} | Max: ${formatValue(max)}</span>
+            </div>`;
+        });
+        html += '</div>';
+        panel.innerHTML = html;
+        panel.style.display = 'block';
+    }
+
     updateLegend() {
         if (!this.currentData) return;
 
@@ -728,5 +989,35 @@ export class ChartManager {
 
             legend.appendChild(item);
         });
+
+        // Battery stats below legend
+        if (this.currentData.metricType === 'battery') {
+            this.currentData.routes.forEach(route => {
+                const batt = (route.batteryLevels || []).filter(v => v != null && !isNaN(v));
+                if (batt.length < 2) return;
+                const start = batt[0];
+                const end = batt[batt.length - 1];
+                const drop = start - end;
+                const ts = route.timestamps || [];
+                const validTs = ts.filter(t => t != null);
+                let durationHrs = 0;
+                if (validTs.length >= 2) {
+                    durationHrs = (validTs[validTs.length - 1] - validTs[0]) / 3600000;
+                }
+                const burnRate = durationHrs > 0 ? drop / durationHrs : 0;
+                const estCapacity = burnRate > 0 ? 100 / burnRate : null;
+
+                const statsDiv = document.createElement('div');
+                statsDiv.className = 'battery-stats';
+                statsDiv.innerHTML = `
+                    <span style="border-left: 3px solid ${route.color}; padding-left: 8px;">
+                        ${Math.round(start)}% → ${Math.round(end)}%
+                        (−${drop.toFixed(1)}% over ${durationHrs.toFixed(1)}h)
+                        ${burnRate > 0 ? ` | Burn: ${burnRate.toFixed(2)}%/hr` : ''}
+                        ${estCapacity ? ` | Est. capacity: ${estCapacity.toFixed(0)}h` : ''}
+                    </span>`;
+                legend.appendChild(statsDiv);
+            });
+        }
     }
 }
