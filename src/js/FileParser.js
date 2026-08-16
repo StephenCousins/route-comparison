@@ -294,11 +294,12 @@ export class FileParser {
         const deviceInfos = data.device_infos || [];
         const snapshots = [];
         for (const di of deviceInfos) {
-            if (di.battery_voltage != null && di.timestamp) {
-                snapshots.push({ time: new Date(di.timestamp).getTime(), voltage: di.battery_voltage });
+            if (di.battery_voltage != null && isFinite(di.battery_voltage) && di.timestamp) {
+                const t = new Date(di.timestamp).getTime();
+                if (isFinite(t)) snapshots.push({ time: t, voltage: di.battery_voltage });
             }
         }
-        if (snapshots.length < 2) return new Array(timestamps.length).fill(null);
+        if (snapshots.length < 2) return [];
 
         snapshots.sort((a, b) => a.time - b.time);
 
