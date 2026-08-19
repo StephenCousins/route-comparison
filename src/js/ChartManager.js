@@ -3,6 +3,37 @@ import { Utils } from './utils.js';
 import { ChartEventHandler } from './ChartEventHandler.js';
 
 export class ChartManager {
+    /**
+     * Y-axis rules per metric. The aim is round, predictable numbers on the
+     * axis without throwing away the detail that makes a chart worth reading.
+     *
+     * Three groups:
+     *  - Metrics with a fixed scale (battery is a percentage of a known whole,
+     *    so it always gets 0-100 regardless of how far the run drained it).
+     *  - Metrics where zero is a real floor the data reaches anyway (speed,
+     *    power, cadence, GPS error) — these snap down to 0.
+     *  - Metrics where zero is meaningless or unreachable (heart rate, pace,
+     *    temperature, running dynamics). Including zero would flatten the
+     *    interesting part, so these only get rounded out to nice numbers.
+     */
+    static AXIS_OPTIONS = {
+        battery:     { min: 0, max: 100 },
+        gpsaccuracy: { zeroBased: true, allowNegative: false },
+        speed:       { allowNegative: false },
+        power:       { allowNegative: false },
+        cadence:     { allowNegative: false },
+        elevation:   {},
+        heartrate:   { snapZeroWithin: 0, allowNegative: false },
+        pace:        { snapZeroWithin: 0, allowNegative: false, stepLadder: Utils.PACE_STEPS },
+        temperature: { snapZeroWithin: 0 }
+    };
+
+    static axisOptionsFor(metricType) {
+        // Running-dynamics dev fields fall through to here; nice rounding with
+        // no zero-snap is the right default for all of them.
+        return ChartManager.AXIS_OPTIONS[metricType] || { snapZeroWithin: 0 };
+    }
+
     constructor() {
         this.canvas = document.getElementById('elevationChart');
         this.ctx = this.canvas.getContext('2d');
@@ -402,9 +433,13 @@ export class ChartManager {
             maxDistance = Math.max(maxDistance, ...route.cumulativeDistances);
         });
 
-        const range = globalMax - globalMin;
-        globalMin -= range * 0.1;
-        globalMax += range * 0.1;
+        // Round the axis out to nice whole numbers rather than padding the raw
+        // data range by 10%, which used to label the axis with whatever the
+        // data happened to hit (a battery chart running 7% to 94%, say).
+        const axis = Utils.niceAxisBounds(globalMin, globalMax,
+            ChartManager.axisOptionsFor(effectiveMetricType));
+        globalMin = axis.min;
+        globalMax = axis.max;
         const adjustedRange = globalMax - globalMin;
 
         // Pace is min/km — a lower number is a *faster* pace, so plotting it
@@ -425,21 +460,19 @@ export class ChartManager {
         // Draw grid
         this.ctx.strokeStyle = theme.grid;
         this.ctx.lineWidth = 1;
-        for (let i = 0; i <= 5; i++) {
-            const y = padding.top + (chartHeight / 5) * i;
+        // One gridline per tick, so every label is a round number.
+        axis.ticks.forEach(value => {
+            const y = valueToY(value);
             this.ctx.beginPath();
             this.ctx.moveTo(padding.left, y);
             this.ctx.lineTo(padding.left + chartWidth, y);
             this.ctx.stroke();
 
-            const value = invertY
-                ? globalMin + (adjustedRange / 5) * i
-                : globalMax - (adjustedRange / 5) * i;
             this.ctx.fillStyle = theme.text;
             this.ctx.font = `11px ${theme.font}`;
             this.ctx.textAlign = 'right';
             this.ctx.fillText(formatValue(value).split(' ')[0], padding.left - 8, y + 4);
-        }
+        });
 
         for (let i = 0; i <= 10; i++) {
             const x = padding.left + (chartWidth / 10) * i;
@@ -605,9 +638,15 @@ export class ChartManager {
             });
         });
 
-        // Add 10% padding and round to nice number
-        maxGap = Math.ceil(maxGap * 1.1 / 10) * 10;
+        // Symmetric around zero, rounded out to a round number of seconds so
+        // the labels are values like 30s/1:00 rather than thirds of the peak.
         if (maxGap < 30) maxGap = 30; // Minimum range
+        const gapAxis = Utils.niceAxisBounds(-maxGap, maxGap, {
+            targetTicks: 6,
+            snapZeroWithin: 0,
+            stepLadder: Utils.TIME_STEPS
+        });
+        maxGap = Math.max(Math.abs(gapAxis.min), gapAxis.max);
 
         const maxDistance = timeGapData.maxDistance;
 
@@ -621,21 +660,19 @@ export class ChartManager {
         this.ctx.lineWidth = 1;
 
         // Horizontal grid lines (time gaps)
-        const ySteps = 6;
-        for (let i = 0; i <= ySteps; i++) {
-            const y = padding.top + (chartHeight / ySteps) * i;
+        gapAxis.ticks.forEach(gapValue => {
+            const y = padding.top + chartHeight / 2 - (gapValue / maxGap) * (chartHeight / 2);
             this.ctx.beginPath();
             this.ctx.moveTo(padding.left, y);
             this.ctx.lineTo(padding.left + chartWidth, y);
             this.ctx.stroke();
 
             // Y-axis labels
-            const gapValue = maxGap - (2 * maxGap / ySteps) * i;
             this.ctx.fillStyle = theme.text;
             this.ctx.font = `11px ${theme.font}`;
             this.ctx.textAlign = 'right';
             this.ctx.fillText(Utils.formatTimeDelta(gapValue), padding.left - 8, y + 4);
-        }
+        });
 
         // Vertical grid lines (distance)
         for (let i = 0; i <= 10; i++) {
@@ -841,7 +878,13 @@ export class ChartManager {
                 if (p.durationSec > globalMaxDuration) globalMaxDuration = p.durationSec;
             });
         });
-        globalMaxPower *= 1.1;
+        // Round the top of the power axis up to a nice number so the labels
+        // read 0/100/200/300W rather than fractions of the peak.
+        const powerAxis = Utils.niceAxisBounds(0, globalMaxPower, {
+            zeroBased: true,
+            allowNegative: false
+        });
+        globalMaxPower = powerAxis.max;
 
         const logMin = 0; // log10(1) = 0
         const logMax = Math.log10(globalMaxDuration);
@@ -854,19 +897,18 @@ export class ChartManager {
         this.ctx.lineWidth = 1;
 
         // Y-axis grid (power)
-        for (let i = 0; i <= 5; i++) {
-            const y = padding.top + (chartHeight / 5) * i;
+        powerAxis.ticks.forEach(value => {
+            const y = padding.top + chartHeight - (value / globalMaxPower) * chartHeight;
             this.ctx.beginPath();
             this.ctx.moveTo(padding.left, y);
             this.ctx.lineTo(padding.left + chartWidth, y);
             this.ctx.stroke();
 
-            const value = globalMaxPower - (globalMaxPower / 5) * i;
             this.ctx.fillStyle = theme.text;
             this.ctx.font = `11px ${theme.font}`;
             this.ctx.textAlign = 'right';
             this.ctx.fillText(Math.round(value) + 'W', padding.left - 8, y + 4);
-        }
+        });
 
         // X-axis: log-scale duration labels
         const durationLabels = [

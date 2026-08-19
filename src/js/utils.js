@@ -238,6 +238,118 @@ export const Utils = {
         return (!spm || isNaN(spm)) ? 'N/A' : `${Math.round(spm)} spm`;
     },
 
+    // ---------------------------------------------------------------
+    // Chart axis scaling
+    // ---------------------------------------------------------------
+
+    // Pace is labelled mm:ss, so a "nice" pace step is a round number of
+    // seconds (5s, 15s, 30s, 1min...) rather than a round decimal of a minute.
+    PACE_STEPS: [1/60, 2/60, 5/60, 10/60, 15/60, 30/60, 1, 2, 5],
+
+    // Axes labelled as durations (mm:ss) want round numbers of seconds and
+    // minutes, not round decimals — 90s reads better than 83s.
+    TIME_STEPS: [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600],
+
+    /**
+     * Smallest "nice" step >= rawStep. Nice means 1, 2, 2.5 or 5 times a power
+     * of ten, so gridlines land on numbers a human would have picked.
+     * Pass a ladder (e.g. PACE_STEPS) to use a domain-specific set instead.
+     */
+    niceStep(rawStep, ladder = null) {
+        if (!isFinite(rawStep) || rawStep <= 0) return 1;
+
+        if (ladder && ladder.length) {
+            for (const step of ladder) {
+                if (step >= rawStep) return step;
+            }
+            // Past the top of the ladder — fall through to the generic scale.
+        }
+
+        const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)));
+        const fraction = rawStep / magnitude;
+        let nice;
+        if (fraction <= 1) nice = 1;
+        else if (fraction <= 2) nice = 2;
+        else if (fraction <= 2.5) nice = 2.5;
+        else if (fraction <= 5) nice = 5;
+        else nice = 10;
+        return nice * magnitude;
+    },
+
+    /**
+     * Work out sensible Y-axis bounds and gridline values for a data range.
+     *
+     * Charts used to pad the data range by 10% and label five arbitrary
+     * fractions of it, which produced axes like "7% ... 94%" on a battery
+     * chart. This rounds the bounds out to whole multiples of a nice step so
+     * the labels are numbers you'd actually choose.
+     *
+     * Options:
+     *   targetTicks     roughly how many gaps to aim for (default 5)
+     *   min / max       force fixed bounds (e.g. battery is always 0-100%)
+     *   zeroBased       always start at zero
+     *   snapZeroWithin  snap the floor to zero when the data already comes
+     *                   this close to it, as a fraction of the max. Set 0 to
+     *                   never snap — sensible for heart rate and pace, where
+     *                   zero is not a meaningful floor and including it just
+     *                   squashes the interesting part of the chart.
+     *   allowNegative   let the axis go below zero (default true)
+     *   stepLadder      domain-specific step sizes
+     *
+     * Returns { min, max, step, ticks } with ticks ascending.
+     */
+    niceAxisBounds(dataMin, dataMax, options = {}) {
+        const {
+            targetTicks = 5,
+            min: forcedMin,
+            max: forcedMax,
+            zeroBased = false,
+            snapZeroWithin = 0.35,
+            allowNegative = true,
+            stepLadder = null
+        } = options;
+
+        const buildAxis = (lo, hi, step) => {
+            const count = Math.max(1, Math.round((hi - lo) / step));
+            const ticks = [];
+            for (let i = 0; i <= count; i++) {
+                // toPrecision clears the float noise that 0.1 * 3 leaves behind.
+                ticks.push(Number((lo + i * step).toPrecision(12)));
+            }
+            return { min: ticks[0], max: ticks[ticks.length - 1], step, ticks };
+        };
+
+        // Fixed scale — the metric has bounds that don't depend on the data.
+        if (isFinite(forcedMin) && isFinite(forcedMax) && forcedMax > forcedMin) {
+            const step = this.niceStep((forcedMax - forcedMin) / targetTicks, stepLadder);
+            return buildAxis(forcedMin, forcedMax, step);
+        }
+
+        let lo = isFinite(dataMin) ? dataMin : 0;
+        let hi = isFinite(dataMax) ? dataMax : 0;
+        if (hi < lo) [lo, hi] = [hi, lo];
+
+        // Flat line — open out a readable band so it isn't drawn on the axis.
+        if (hi - lo < 1e-9) {
+            const pad = Math.abs(hi) > 1e-9 ? Math.abs(hi) * 0.1 : 1;
+            lo -= pad;
+            hi += pad;
+        }
+
+        const shouldSnapToZero = zeroBased ||
+            (snapZeroWithin > 0 && lo >= 0 && hi > 0 && lo <= hi * snapZeroWithin);
+        if (shouldSnapToZero) lo = 0;
+
+        const step = this.niceStep((hi - lo) / targetTicks, stepLadder);
+        let niceMin = Math.floor(lo / step) * step;
+        let niceMax = Math.ceil(hi / step) * step;
+
+        if (!allowNegative && niceMin < 0) niceMin = 0;
+        if (niceMax - niceMin < step) niceMax = niceMin + step;
+
+        return buildAxis(niceMin, niceMax, step);
+    },
+
     // Running dynamics formatters. FIT reports vertical oscillation and step
     // length in mm and ground contact time in ms — cm is the conventional
     // display unit for the first two (matches Garmin Connect).
