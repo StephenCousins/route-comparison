@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { Utils } from '../../src/js/utils.js';
 
+// Mirrors ChartManager.AXIS_OPTIONS.battery
+const BATTERY = {
+    preferMax: 100,
+    stepLadder: Utils.BATTERY_STEPS,
+    allowNegative: false,
+    clampMax: 100
+};
+
 describe('Axis Scaling', () => {
     describe('niceStep', () => {
         it('should round up to 1, 2, 2.5, 5 or 10 times a power of ten', () => {
@@ -31,11 +39,53 @@ describe('Axis Scaling', () => {
     });
 
     describe('niceAxisBounds', () => {
-        it('should give a battery chart the full 0-100% scale', () => {
-            const axis = Utils.niceAxisBounds(7, 94, { min: 0, max: 100 });
+        it('should give a heavily drained battery the full 0-100% scale', () => {
+            const axis = Utils.niceAxisBounds(7, 94, BATTERY);
             expect(axis.min).toBe(0);
             expect(axis.max).toBe(100);
             expect(axis.ticks).toEqual([0, 20, 40, 60, 80, 100]);
+        });
+
+        it('should keep a tight axis when the battery barely drained', () => {
+            // A short run shouldn't be flattened against the top of a
+            // full-scale chart, but the bounds still want to be round.
+            const axis = Utils.niceAxisBounds(88, 100, BATTERY);
+            expect(axis.min).toBe(85);
+            expect(axis.max).toBe(100);
+            expect(axis.ticks).toEqual([85, 90, 95, 100]);
+        });
+
+        it('should round battery bounds out to round percentages', () => {
+            const axis = Utils.niceAxisBounds(46, 98, BATTERY);
+            expect(axis.min).toBe(40);
+            expect(axis.max).toBe(100);
+            axis.ticks.forEach(t => expect(Number.isInteger(t)).toBe(true));
+        });
+
+        it('should never take the battery axis above 100% or below 0%', () => {
+            [[3, 99], [88, 100], [46, 98], [1, 2], [0, 100]].forEach(([lo, hi]) => {
+                const axis = Utils.niceAxisBounds(lo, hi, BATTERY);
+                expect(axis.max).toBeLessThanOrEqual(100);
+                expect(axis.min).toBeGreaterThanOrEqual(0);
+                // and must still contain the data
+                expect(axis.min).toBeLessThanOrEqual(lo);
+                expect(axis.max).toBeGreaterThanOrEqual(hi);
+            });
+        });
+
+        it('should top a nearly-full battery axis at 100, not 98', () => {
+            const axis = Utils.niceAxisBounds(88, 97, BATTERY);
+            expect(axis.max).toBe(100);
+        });
+
+        it('should not drag the top up to 100 when the battery is nowhere near it', () => {
+            // Started part-charged at 63% — 100% would be empty space.
+            expect(Utils.niceAxisBounds(41, 63, BATTERY).max).toBe(65);
+        });
+
+        it('should respect clampMax without clipping data that exceeds it', () => {
+            const axis = Utils.niceAxisBounds(40, 118, { clampMax: 100 });
+            expect(axis.max).toBeGreaterThanOrEqual(118);
         });
 
         it('should round bounds out to whole multiples of the step', () => {

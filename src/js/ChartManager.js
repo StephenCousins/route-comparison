@@ -8,16 +8,18 @@ export class ChartManager {
      * axis without throwing away the detail that makes a chart worth reading.
      *
      * Three groups:
-     *  - Metrics with a fixed scale (battery is a percentage of a known whole,
-     *    so it always gets 0-100 regardless of how far the run drained it).
      *  - Metrics where zero is a real floor the data reaches anyway (speed,
      *    power, cadence, GPS error) — these snap down to 0.
      *  - Metrics where zero is meaningless or unreachable (heart rate, pace,
      *    temperature, running dynamics). Including zero would flatten the
      *    interesting part, so these only get rounded out to nice numbers.
+     *  - Battery, which is just rounded out to whole percentages and capped at
+     *    100. A big drain lands on 0-100 on its own because the step is large;
+     *    a run that only used a few percent keeps a tight axis instead of
+     *    being flattened against the top of a full-scale chart.
      */
     static AXIS_OPTIONS = {
-        battery:     { min: 0, max: 100 },
+        battery:     { stepLadder: Utils.BATTERY_STEPS, allowNegative: false, clampMax: 100, preferMax: 100 },
         gpsaccuracy: { zeroBased: true, allowNegative: false },
         speed:       { allowNegative: false },
         power:       { allowNegative: false },

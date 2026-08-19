@@ -250,6 +250,10 @@ export const Utils = {
     // minutes, not round decimals — 90s reads better than 83s.
     TIME_STEPS: [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600],
 
+    // Battery is read in whole percent, so skip the 2.5 rung that the generic
+    // scale would otherwise pick and keep the labels on round percentages.
+    BATTERY_STEPS: [1, 2, 5, 10, 20, 25, 50],
+
     /**
      * Smallest "nice" step >= rawStep. Nice means 1, 2, 2.5 or 5 times a power
      * of ten, so gridlines land on numbers a human would have picked.
@@ -295,6 +299,12 @@ export const Utils = {
      *                   squashes the interesting part of the chart.
      *   allowNegative   let the axis go below zero (default true)
      *   stepLadder      domain-specific step sizes
+     *   clampMin/Max    hard limits the rounded bounds can't cross, for
+     *                   metrics with a natural ceiling or floor (battery
+     *                   can't read above 100%)
+     *   preferMax       round the top up to this when it lands within one
+     *                   step of it, so a battery reading 97% tops the axis
+     *                   at 100% rather than 98%
      *
      * Returns { min, max, step, ticks } with ticks ascending.
      */
@@ -306,7 +316,10 @@ export const Utils = {
             zeroBased = false,
             snapZeroWithin = 0.35,
             allowNegative = true,
-            stepLadder = null
+            stepLadder = null,
+            clampMin,
+            clampMax,
+            preferMax
         } = options;
 
         const buildAxis = (lo, hi, step) => {
@@ -345,6 +358,13 @@ export const Utils = {
         let niceMax = Math.ceil(hi / step) * step;
 
         if (!allowNegative && niceMin < 0) niceMin = 0;
+        // Close to the natural ceiling — go the last step and land on it.
+        if (isFinite(preferMax) && niceMax < preferMax && preferMax - niceMax <= step) {
+            niceMax = preferMax;
+        }
+        // Never round past a natural limit, and never clip the data either.
+        if (isFinite(clampMin) && niceMin < clampMin) niceMin = Math.min(clampMin, lo);
+        if (isFinite(clampMax) && niceMax > clampMax) niceMax = Math.max(clampMax, hi);
         if (niceMax - niceMin < step) niceMax = niceMin + step;
 
         return buildAxis(niceMin, niceMax, step);
