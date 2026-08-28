@@ -8,6 +8,10 @@ export class Route {
         this.displayName = data.displayName || data.filename.replace(/\.(gpx|fit)$/i, '').replace(/_/g, ' ');
         this.color = data.color;
         this.coordinates = data.coordinates;
+        // Device odometer channel (FIT record.distance, km), parallel to
+        // coordinates. Empty for GPX and for FIT files without it — read it
+        // through Utils.buildCumulativeDistances, never directly.
+        this.distances = data.distances || [];
         this.elevations = data.elevations || [];
         this.heartRates = data.heartRates || [];
         this.cadences = data.cadences || [];

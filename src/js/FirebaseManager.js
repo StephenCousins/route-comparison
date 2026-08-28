@@ -142,6 +142,14 @@ export class FirebaseStorageManager {
                     return arr.map(v => v === null ? null : Math.round(v * 10) / 10);
                 };
 
+                // Distances are in km, so roundArray's 1 decimal place would
+                // quantise them to 100 m and destroy the channel. 4 places is
+                // 0.1 m — finer than any device records.
+                const roundDistances = (arr) => {
+                    if (!arr) return null;
+                    return arr.map(v => v === null ? null : Math.round(v * 10000) / 10000);
+                };
+
                 const routeData = {
                     displayName: route.displayName || 'Unnamed Route',
                     color: route.color || '#EA4335',
@@ -153,12 +161,31 @@ export class FirebaseStorageManager {
                     distance: Math.round(route.distance * 100) / 100 || 0,
                     elevationStats: route.elevationStats || { gain: 0, loss: 0, min: 0, max: 0 },
                     duration: Math.round(route.duration || 0),
+                    durationSource: route.durationSource || 'gps',
                     fileName: route.fileName || 'unknown.gpx',
                     savedAt: new Date().toISOString(),
                     compressionFactor: compressionFactor,
                     originalPointCount: totalPoints
                 };
 
+                // Compressed with the same factor as coordinates so the channel
+                // stays index-parallel to them after the round trip — the
+                // usability check in Utils rejects any mismatch outright.
+                if (route.distances && route.distances.length > 0) {
+                    routeData.distances = roundDistances(compressArray(route.distances));
+                }
+                if (route.distanceSource) {
+                    routeData.distanceSource = route.distanceSource;
+                }
+                if (route.gpsDistance !== undefined && route.gpsDistance !== null) {
+                    routeData.gpsDistance = Math.round(route.gpsDistance * 100) / 100;
+                }
+                if (route.gpsDuration !== undefined && route.gpsDuration !== null) {
+                    routeData.gpsDuration = Math.round(route.gpsDuration);
+                }
+                if (route.movingTime !== undefined && route.movingTime !== null) {
+                    routeData.movingTime = Math.round(route.movingTime);
+                }
                 if (route.heartRates !== undefined && route.heartRates !== null) {
                     routeData.heartRates = roundArray(compressArray(route.heartRates));
                 }

@@ -427,11 +427,7 @@ export class InsightsManager {
 
         if (validPaces.length < 10) return insights;
 
-        // Calculate distances
-        let distances = [0];
-        for (let i = 1; i < route.coordinates.length; i++) {
-            distances.push(distances[i-1] + Utils.haversineDistance(route.coordinates[i-1], route.coordinates[i]));
-        }
+        const distances = Utils.buildCumulativeDistances(route);
 
         const rollingWindow = Math.min(10, Math.floor(validPaces.length / 10));
         let fastestAvgPace = Infinity;
@@ -1031,7 +1027,7 @@ export class InsightsManager {
         text += '</p>';
 
         if (route.stats.elevationGain) {
-            const gainPerKm = route.stats.elevationGain / (route.stats.distance / 1000);
+            const gainPerKm = route.stats.elevationGain / route.stats.distance;
             text += `<p><em>Total elevation gain: ${route.stats.elevationGain.toFixed(0)}m (${gainPerKm.toFixed(0)}m/km average)</em></p>`;
         }
 

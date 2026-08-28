@@ -23,12 +23,49 @@ export const Utils = {
         return deg * (Math.PI / 180);
     },
 
+    // Pure track-derived distance: the sum of point-to-point Haversine hops.
+    // Kept as the GPS baseline the session self-check measures against — see
+    // buildCumulativeDistances for what the rest of the app plots against.
     calculateDistance(coords) {
         let totalDistance = 0;
         for (let i = 1; i < coords.length; i++) {
             totalDistance += this.haversineDistance(coords[i-1], coords[i]);
         }
         return totalDistance;
+    },
+
+    // A FIT record.distance channel is only safe to plot against if it covers
+    // every point and never goes backwards — the x-axis, the split finder and
+    // the best-effort window search all assume a sorted array, and a single
+    // null or backward step would corrupt a binary search rather than merely
+    // look wrong. Anything less than complete and monotonic falls back to
+    // Haversine, which is always well-formed.
+    isUsableDistanceChannel(distances, expectedLength = null) {
+        if (!Array.isArray(distances) || distances.length < 2) return false;
+        if (expectedLength !== null && distances.length !== expectedLength) return false;
+
+        for (let i = 0; i < distances.length; i++) {
+            const d = distances[i];
+            if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d)) return false;
+            if (i > 0 && d < distances[i - 1]) return false;
+        }
+        return distances[distances.length - 1] > distances[0];
+    },
+
+    // Total distance according to the device's own odometer. Takes the maximum
+    // rather than the last element so a trailing null or a spurious reset at
+    // the end of the file can't report a short run — the odometer only ever
+    // climbs, so the maximum is the total. Tolerates gaps, unlike the channel
+    // check above, because a total needs no per-point alignment.
+    deviceTotalDistance(distances) {
+        if (!Array.isArray(distances) || distances.length === 0) return null;
+
+        let max = null;
+        for (const d of distances) {
+            if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d)) continue;
+            if (max === null || d > max) max = d;
+        }
+        return max !== null && max > 0 ? max : null;
     },
 
     calculateElevationStats(elevations, options = {}) {
@@ -148,8 +185,14 @@ export const Utils = {
     calculateSessionCheck(route) {
         if (!route.sessionSummary) return null;
 
-        const recomputedDistanceKm = route.stats?.distance ?? null;
-        const recomputedDurationSeconds = route.stats?.duration ?? null;
+        // Deliberately gpsDistance/gpsDuration, NOT distance/duration: the
+        // headline stats now come from this very session message, so comparing
+        // against them would report a zero discrepancy on every file and
+        // quietly retire the check. The track-derived pair is the independent
+        // measurement. Older saved sessions predate those fields and stored the
+        // track-derived values under the plain names, hence the fallback.
+        const recomputedDistanceKm = route.stats?.gpsDistance ?? route.stats?.distance ?? null;
+        const recomputedDurationSeconds = route.stats?.gpsDuration ?? route.stats?.duration ?? null;
         const recomputedAscent = route.stats?.elevationGain ?? null;
         const recomputedDescent = route.stats?.elevationLoss ?? null;
 
@@ -185,6 +228,20 @@ export const Utils = {
 
     formatDistance(km) {
         return km >= 1 ? `${km.toFixed(2)} km` : `${(km * 1000).toFixed(0)} m`;
+    },
+
+    // Where a route's headline distance actually came from. Worth stating
+    // rather than hiding: a fault report comparing two devices means something
+    // different when one number is the watch's own and the other is a
+    // Haversine sum over a GPX export.
+    DISTANCE_SOURCE_LABELS: {
+        session: 'Device-reported (FIT session total)',
+        record: 'Device odometer (FIT record distance)',
+        gps: 'Recomputed from the GPS track'
+    },
+
+    describeDistanceSource(source) {
+        return this.DISTANCE_SOURCE_LABELS[source] || this.DISTANCE_SOURCE_LABELS.gps;
     },
 
     formatElevation(m) {
@@ -603,15 +660,12 @@ export const Utils = {
         const startTime = route.timestamps[0]?.getTime();
         if (!startTime) return null;
 
-        let cumulativeDistance = 0;
+        const cumulative = this.buildCumulativeDistances(route);
 
         for (let i = 1; i < route.coordinates.length; i++) {
-            const dist = this.haversineDistance(route.coordinates[i-1], route.coordinates[i]);
-            cumulativeDistance += dist;
-
             if (route.timestamps[i]) {
                 const elapsedTime = (route.timestamps[i].getTime() - startTime) / 1000;
-                map.distances.push(cumulativeDistance);
+                map.distances.push(cumulative[i]);
                 map.times.push(elapsedTime + timeOffsetSeconds);
             }
         }
@@ -975,11 +1029,15 @@ export const Utils = {
             : minGapSeconds;
 
         const gaps = [];
+        // Gap locations are quoted so a tester can find them in the source
+        // file and on the charts, so they have to be on the chart's own
+        // distance basis.
+        const cumulative = this.buildCumulativeDistances(route);
         let cumulativeDistanceKm = 0;
         lastValidTime = null;
         for (let i = 0; i < timestamps.length; i++) {
-            if (i > 0 && route.coordinates?.[i] && route.coordinates?.[i - 1]) {
-                cumulativeDistanceKm += this.haversineDistance(route.coordinates[i - 1], route.coordinates[i]);
+            if (cumulative[i] !== undefined) {
+                cumulativeDistanceKm = cumulative[i];
             }
             if (timestamps[i] !== null) {
                 if (lastValidTime !== null) {
@@ -1312,14 +1370,11 @@ export const Utils = {
         const durationSeconds = (endTime - startTime) / 1000;
         if (durationSeconds <= 0) return null;
 
-        // Calculate actual distance for this segment
-        let segmentDistance = 0;
-        for (let i = startIdx + 1; i <= endIdx; i++) {
-            segmentDistance += this.haversineDistance(
-                route.coordinates[i - 1],
-                route.coordinates[i]
-            );
-        }
+        // Distance for this segment on the same basis as the split boundaries
+        // that produced startIdx/endIdx — otherwise a split measured in device
+        // kilometres would be paced in GPS kilometres.
+        const cumulative = this.buildCumulativeDistances(route);
+        const segmentDistance = cumulative[endIdx] - cumulative[startIdx];
 
         if (segmentDistance <= 0) return null;
 
@@ -1348,15 +1403,7 @@ export const Utils = {
             return [];
         }
 
-        // Build cumulative distances
-        const distances = [0];
-        for (let i = 1; i < route.coordinates.length; i++) {
-            distances.push(
-                distances[i - 1] +
-                this.haversineDistance(route.coordinates[i - 1], route.coordinates[i])
-            );
-        }
-
+        const distances = this.buildCumulativeDistances(route);
         const totalDistance = distances[distances.length - 1];
         const splits = [];
         let splitNum = 1;
@@ -1467,15 +1514,7 @@ export const Utils = {
             return null;
         }
 
-        // Build cumulative distances
-        const distances = [0];
-        for (let i = 1; i < route.coordinates.length; i++) {
-            distances.push(
-                distances[i - 1] +
-                this.haversineDistance(route.coordinates[i - 1], route.coordinates[i])
-            );
-        }
-
+        const distances = this.buildCumulativeDistances(route);
         const totalDistance = distances[distances.length - 1];
 
         // Validate range
@@ -1513,13 +1552,29 @@ export const Utils = {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     },
 
-    // Best Efforts Detection
+    // THE single source of per-point cumulative distance (km), parallel to
+    // route.coordinates. Every distance axis and every distance-indexed
+    // analysis goes through here — splits, best efforts, segments, the chart
+    // x-axis, time/distance mapping — so they all sit on the same basis as the
+    // headline stat instead of each re-deriving their own Haversine sum.
+    //
+    // Rebased to 0 at the first plotted point: the odometer counts from the
+    // start of the recording, which may precede the first GPS fix, and the
+    // comparison features (drag-to-align, auto-align, drift) all work in
+    // distance-from-start-of-track. The unshifted total lives on stats.distance.
     buildCumulativeDistances(route) {
+        const channel = route?.distances;
+        if (this.isUsableDistanceChannel(channel, route?.coordinates?.length ?? null)) {
+            const start = channel[0];
+            return channel.map(d => d - start);
+        }
+
         const distances = [0];
-        for (let i = 1; i < route.coordinates.length; i++) {
+        const coordinates = route?.coordinates || [];
+        for (let i = 1; i < coordinates.length; i++) {
             const d = this.haversineDistance(
-                route.coordinates[i - 1],
-                route.coordinates[i]
+                coordinates[i - 1],
+                coordinates[i]
             );
             distances.push(distances[i - 1] + d);
         }
@@ -1534,13 +1589,16 @@ export const Utils = {
     },
 
     calculateBestEfforts(route, distances = [1, 5, 10, 21.1, 42.195]) {
-        const routeDistance = route.stats.distance;
+        const cumulativeDistances = this.buildCumulativeDistances(route);
+
+        // Bound the window search by what the track actually spans, not by
+        // stats.distance: the headline total covers the whole recording, which
+        // can start before the first GPS fix, and the window search indexes
+        // into this array.
+        const routeDistance = cumulativeDistances[cumulativeDistances.length - 1];
         const validDistances = distances.filter(d => d <= routeDistance);
 
         if (validDistances.length === 0) return [];
-
-        // Build cumulative distance array
-        const cumulativeDistances = this.buildCumulativeDistances(route);
 
         const bestEfforts = [];
 

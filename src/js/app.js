@@ -376,6 +376,7 @@ class RouteOverlayApp {
             displayName: route.displayName,
             color: route.color,
             coordinates: route.coordinates,
+            distances: route.distances,
             elevations: route.elevations,
             heartRates: route.heartRates,
             cadences: route.cadences,
@@ -405,6 +406,8 @@ class RouteOverlayApp {
             paces: route.paces,
             timestamps: route.timestamps,
             distance: route.stats.distance,
+            distanceSource: route.stats.distanceSource,
+            gpsDistance: route.stats.gpsDistance,
             elevationStats: {
                 gain: route.stats.elevationGain,
                 loss: route.stats.elevationLoss,
@@ -412,6 +415,9 @@ class RouteOverlayApp {
                 max: route.stats.maxElevation
             },
             duration: route.stats.duration,
+            durationSource: route.stats.durationSource,
+            gpsDuration: route.stats.gpsDuration,
+            movingTime: route.stats.movingTime,
             fileName: route.filename
         }));
 
@@ -482,6 +488,7 @@ class RouteOverlayApp {
                 displayName: routeData.displayName,
                 color: routeData.color || Utils.colors[this.colorIndex % Utils.colors.length],
                 coordinates: routeData.coordinates,
+                distances: routeData.distances || [],
                 elevations: routeData.elevations || [],
                 heartRates: routeData.heartRates || [],
                 cadences: routeData.cadences || [],
@@ -505,11 +512,20 @@ class RouteOverlayApp {
                 timestamps: (routeData.timestamps || []).map(t => this.parseFirestoreTimestamp(t)),
                 stats: {
                     distance: routeData.distance,
+                    // Sessions saved before the device-first change stored the
+                    // track-derived figures under the plain names; treating
+                    // those as the GPS baseline keeps the session self-check
+                    // working on them rather than silently zeroing it.
+                    distanceSource: routeData.distanceSource || 'gps',
+                    gpsDistance: routeData.gpsDistance ?? routeData.distance,
                     elevationGain: routeData.elevationStats?.gain || 0,
                     elevationLoss: routeData.elevationStats?.loss || 0,
                     minElevation: routeData.elevationStats?.min || 0,
                     maxElevation: routeData.elevationStats?.max || 0,
-                    duration: routeData.duration
+                    duration: routeData.duration,
+                    durationSource: routeData.durationSource || 'gps',
+                    gpsDuration: routeData.gpsDuration ?? routeData.duration,
+                    movingTime: routeData.movingTime ?? null
                 }
             });
 
@@ -841,7 +857,7 @@ class RouteOverlayApp {
         stats.innerHTML = `
             <div class="stat-row">
                 <span class="stat-label">Distance:</span>
-                <span class="stat-value">${Utils.formatDistance(route.stats.distance)}</span>
+                <span class="stat-value" title="${Utils.describeDistanceSource(route.stats.distanceSource)}">${Utils.formatDistance(route.stats.distance)}</span>
             </div>
             <div class="stat-row">
                 <span class="stat-label">Elev Gain:</span>
@@ -1593,7 +1609,8 @@ class RouteOverlayApp {
             </tr>`;
         }).join('');
 
-        table.innerHTML = `<thead>${headerRow}</thead><tbody>${bodyRows}</tbody>`;
+        const caption = '<caption class="table-caption">Device-reported session totals minus the same figures recomputed from the raw GPS track. The track side is deliberately independent of the headline route stats, which now come from the device itself.</caption>';
+        table.innerHTML = `${caption}<thead>${headerRow}</thead><tbody>${bodyRows}</tbody>`;
         modal.classList.add('show');
     }
 
@@ -1775,16 +1792,14 @@ class RouteOverlayApp {
         );
     }
 
-    // Cumulative track distance (km) up to a point index — only used for the
-    // handful of flagged events in a fault report, so an O(n) walk per call
-    // is cheap enough to not warrant caching a full prefix-sum array.
+    // Cumulative distance (km) up to a point index — only used for the handful
+    // of flagged events in a fault report, so rebuilding the array per call is
+    // cheap enough to not warrant caching it.
     distanceAtIndex(route, index) {
         if (!route.coordinates || index === null || index === undefined) return null;
-        let dist = 0;
-        for (let i = 1; i <= index && i < route.coordinates.length; i++) {
-            dist += Utils.haversineDistance(route.coordinates[i - 1], route.coordinates[i]);
-        }
-        return dist;
+        const cumulative = Utils.buildCumulativeDistances(route);
+        const clamped = Math.min(Math.max(index, 0), cumulative.length - 1);
+        return cumulative[clamped] ?? null;
     }
 
     // Per-route checks that don't need a reference: running dynamics coverage,
@@ -1959,11 +1974,12 @@ class RouteOverlayApp {
         const allEntries = [{ route: referenceRoute, role: 'Reference' }, ...testRoutes.map(r => ({ route: r, role: 'Test' }))];
 
         lines.push('## Devices');
-        lines.push('| Role | Route | Product | Manufacturer | Firmware | Serial | File |');
-        lines.push('|---|---|---|---|---|---|---|');
+        lines.push('| Role | Route | Product | Manufacturer | Firmware | Serial | Distance Basis | File |');
+        lines.push('|---|---|---|---|---|---|---|---|');
         allEntries.forEach(({ route, role }) => {
             const d = route.device || {};
-            lines.push(`| ${role} | ${esc(route.displayName)} | ${esc(d.productName || 'Unknown')} | ${esc(d.manufacturer || 'Unknown')} | ${esc(d.firmwareVersion || 'N/A')} | ${esc(d.serialNumber || 'N/A')} | ${esc(route.filename)} |`);
+            const basis = Utils.describeDistanceSource(route.stats.distanceSource);
+            lines.push(`| ${role} | ${esc(route.displayName)} | ${esc(d.productName || 'Unknown')} | ${esc(d.manufacturer || 'Unknown')} | ${esc(d.firmwareVersion || 'N/A')} | ${esc(d.serialNumber || 'N/A')} | ${esc(basis)} | ${esc(route.filename)} |`);
         });
         lines.push('');
 
@@ -2072,8 +2088,13 @@ class RouteOverlayApp {
         // Store selected routes for analysis
         this.segmentRoutes = routesWithTimestamps;
 
-        // Find max distance across all routes for input validation hint
-        const minMaxDistance = Math.min(...routesWithTimestamps.map(r => r.stats.distance));
+        // Find max distance across all routes for input validation hint. Must
+        // be the track's own span, since that's what calculateSegmentMetrics
+        // validates the entered range against.
+        const minMaxDistance = Math.min(...routesWithTimestamps.map(r => {
+            const cumulative = Utils.buildCumulativeDistances(r);
+            return cumulative[cumulative.length - 1];
+        }));
         document.getElementById('segmentEnd').max = minMaxDistance.toFixed(1);
 
         // Clear previous results
@@ -2447,7 +2468,7 @@ class RouteOverlayApp {
 
             return [
                 `"${route.displayName.replace(/"/g, '""')}"`,
-                (route.stats.distance / 1000).toFixed(2),
+                route.stats.distance.toFixed(2),
                 route.stats.duration ? Utils.formatDuration(route.stats.duration) : 'N/A',
                 avgPace ? Utils.formatPace(avgPace) : 'N/A',
                 Math.round(route.stats.elevationGain),
@@ -2542,7 +2563,7 @@ class RouteOverlayApp {
         const headers = ['Route Name','Distance (km)','Duration','Avg Pace (min/km)','Elevation Gain (m)','Avg Heart Rate (bpm)','Avg Power (W)'];
         const rows = selectedRoutes.map(route => [
             `"${route.displayName.replace(/"/g, '""')}"`,
-            (route.stats.distance / 1000).toFixed(2),
+            route.stats.distance.toFixed(2),
             route.stats.duration ? Utils.formatDuration(route.stats.duration) : 'N/A',
             avg(route.paces) ? Utils.formatPace(avg(route.paces)) : 'N/A',
             Math.round(route.stats.elevationGain),

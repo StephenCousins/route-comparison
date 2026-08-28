@@ -52,7 +52,7 @@ The application uses ES6 modules with the following structure:
 
   Y-axis bounds come from `Utils.niceAxisBounds`, which rounds out to whole multiples of a nice step so labels are round numbers. Per-metric rules live in `ChartManager.AXIS_OPTIONS`: speed/power/cadence/GPS accuracy snap down to 0; heart rate, pace, temperature and dev fields don't (zero isn't meaningful and would flatten the chart); battery is capped at 100% and prefers 100 as its top when within one step, so a heavy drain lands on 0-100 while a short run keeps a tight axis. Pace and time-gap axes use second-based step ladders.
 
-- **`FileParser.js`** - Parses GPX (XML) and FIT (binary) files. Extracts coordinates, timestamps, metrics, running dynamics, battery data (including raw binary scanner for FIT message type 104), GPS vs barometric elevation, and temperature.
+- **`FileParser.js`** - Parses GPX (XML) and FIT (binary) files. Extracts coordinates, timestamps, metrics, running dynamics, battery data (including raw binary scanner for FIT message type 104), GPS vs barometric elevation, temperature, and the device's own distance odometer. See "Distance Provenance" below for how `stats.distance` is chosen.
 
 - **`FirebaseManager.js`** - Firebase initialization plus `FirebaseAuthManager` and `FirebaseStorageManager` classes for Google Auth and Firestore operations. Sessions store optional `name`, `tags` (array), and `notes` metadata.
 
@@ -63,7 +63,7 @@ The application uses ES6 modules with the following structure:
 - **`toast.js`** - Lightweight non-blocking toast notifications (`showToast(message, type, duration)`), replacing blocking `alert()` calls. Types: `info`, `success`, `warning`, `error`.
 
 - **`utils.js`** - Pure calculation/formatting functions, including:
-  - Distance calculations (Haversine)
+  - Distance: `buildCumulativeDistances` is the single source of per-point distance for every distance axis and distance-indexed analysis; `calculateDistance` is the raw Haversine sum, kept only as the GPS baseline (see "Distance Provenance")
   - Elevation statistics
   - Data smoothing and decimation
   - GPS data cleaning (MAD outlier detection, acceleration spike filtering, distance jump detection)
@@ -78,6 +78,25 @@ The application uses ES6 modules with the following structure:
 Copy `src/js/config.example.js` to `src/js/config.js` and fill in your credentials:
 - Firebase config from Firebase Console
 - Google Maps API key from Google Cloud Console
+
+### Distance Provenance
+
+A Haversine sum over the GPS track is the *worst* available distance for a FIT file: it accumulates positional jitter as real distance, and records with no lat/lng are dropped at parse time, so a lost-fix stretch is chorded straight across. The device's own figure fuses GPS with the accelerometer/footpod, spans dropouts, and is what the watch actually displayed.
+
+`FileParser.createRouteData` therefore picks `stats.distance` by precedence, recording which it used in `stats.distanceSource`:
+
+1. `session.total_distance` (`'session'`) — the FIT session message
+2. `record.distance` (`'record'`) — the per-point odometer, when there's no session message
+3. Haversine over the track (`'gps'`) — every GPX file, and FIT files with neither
+
+`stats.duration` follows the same shape (`session.total_elapsed_time` → track timestamps, recorded in `stats.durationSource`); `stats.movingTime` holds `total_timer_time` (elapsed minus auto-pause) and nothing is wired onto it yet. **Ascent/descent stay recomputed on purpose** — device ascent is barometric and calibrated per-device, so comparing two watches on their own numbers compares their barometers. The device figures remain on `route.sessionSummary`.
+
+Two invariants matter:
+
+- **`stats.gpsDistance` / `stats.gpsDuration` are always the track-derived values.** `Utils.calculateSessionCheck` measures the session totals against *these*, not against `stats.distance`/`stats.duration` — which now come from the session message, so comparing against them would report zero discrepancy on every file and silently retire the check. Sessions saved before this change stored the track-derived values under the plain names, hence the `??` fallbacks in `calculateSessionCheck` and in the session loader.
+- **Per-point distance always goes through `Utils.buildCumulativeDistances(route)`.** It returns the device channel (`route.distances`, km, parallel to `coordinates`) rebased to 0 at the first plotted point, or a Haversine fallback when the channel is absent or unusable. `Utils.isUsableDistanceChannel` requires it to be complete, gap-free and monotonic, because the split finder and best-effort window search binary-search it. Never re-derive a cumulative sum inline — six copies of that loop is exactly the drift this replaced.
+
+`route.distances` is persisted with saved sessions, compressed with the same factor as `coordinates` so the arrays stay index-parallel. The parser discards the channel outright if it disagrees with the session total by more than 25%, which is insurance against a units change in the CDN-loaded FIT parser (both fields are metres under `lengthUnit: 'm'`).
 
 ### Key Data Flow
 
@@ -109,12 +128,12 @@ The comparison panel's toolbar has three button groups: **Charts** (per-metric l
 - **Auto-Align** (`autoAlign`) - Geographically matches two routes to compute a distance offset (feeds the metric charts) and, for same-day comparisons, a time offset (feeds Time Gap/Race), with a confidence signal.
 - **Distance Drift** (`compareDistanceDrift`) - Whether a device's odometer reads consistently long/short vs a reference route over time.
 - **Dynamics** (`compareRunningDynamics`) - FIT running dynamics averages (vertical oscillation, ground contact time, vertical ratio, GCT balance, step length) and per-route field coverage.
-- **Session Check** (`compareSessionCheck`) - A FIT route's own device-reported totals (distance/duration/ascent/descent) vs values recomputed from its raw track — a mismatch is a firmware self-reporting bug, not a GPS-accuracy question. Also derives a barometric elevation estimate from raw pressure when present.
+- **Session Check** (`compareSessionCheck`) - A FIT route's own device-reported totals (distance/duration/ascent/descent) vs values recomputed from its raw track (`stats.gpsDistance`/`stats.gpsDuration` — see "Distance Provenance") — a mismatch is a firmware self-reporting bug, not a GPS-accuracy question. Also derives a barometric elevation estimate from raw pressure when present.
 - **HR / Cadence** (`compareHrValidation`) - Bland-Altman-style mean-absolute-error/bias between two routes' heart rate, plus cadence-lock detection (HR suspiciously tracking cadence — a classic optical-sensor failure mode).
 - **Dropout** (`compareDropout`) - Recording gaps (vs the file's own typical sampling interval) and per-sensor null-value runs, excluding sensors that were never recorded at all.
 - **Fault Report** (`generateFaultReport`) - Consolidates all of the above into a downloadable Markdown summary + CSV, for filing bugs with device engineers: per-metric pass/fail against `FAULT_REPORT_THRESHOLDS` (top of `app.js`, tune per test protocol), plus a raw incident log (gaps/dropouts/cadence-lock runs) with the timestamp/distance to locate them in the source file. Compares every selected route against a picked reference route (`pickReferenceRoute` - prefers a route with timestamps).
 
-Device/firmware metadata (manufacturer, product, firmware version, serial) is parsed from FIT `file_id`/`device_info` messages into `route.device`; GPX files have no equivalent and show "Unknown".
+Device/firmware metadata (manufacturer, product, firmware version, serial) is parsed from FIT `file_id`/`device_info` messages into `route.device`; GPX files have no equivalent and show "Unknown". The fault report's Devices table also carries a **Distance Basis** column naming each route's `stats.distanceSource` — a comparison means something different when one side is the watch's own number and the other is a Haversine sum over a GPX export.
 
 ### Photos
 

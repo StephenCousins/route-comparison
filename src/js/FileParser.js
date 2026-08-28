@@ -519,6 +519,11 @@ export class FileParser {
         const totalDistanceKm = session.total_distance !== undefined && session.total_distance !== null
             ? session.total_distance / 1000 : null;
         const totalElapsedSeconds = session.total_elapsed_time ?? session.total_timer_time ?? null;
+        // Timer time excludes auto-pause/manual-pause stretches, so it is the
+        // "moving time" counterpart to elapsed. Kept separate rather than
+        // folded into totalElapsedSeconds, which must stay elapsed for the
+        // session self-check to mean anything.
+        const totalTimerSeconds = session.total_timer_time ?? null;
         const totalAscent = session.total_ascent ?? null;
         const totalDescent = session.total_descent ?? null;
 
@@ -526,7 +531,7 @@ export class FileParser {
             return null;
         }
 
-        return { totalDistanceKm, totalElapsedSeconds, totalAscent, totalDescent };
+        return { totalDistanceKm, totalElapsedSeconds, totalTimerSeconds, totalAscent, totalDescent };
     }
 
     static async parseFIT(arrayBuffer, color, filename) {
@@ -559,7 +564,7 @@ export class FileParser {
                 const powerZoneBoundaries = this.buildPowerZoneBoundaries(data);
                 // Battery levels are extracted after timestamps are collected (below)
 
-                const coordinates = [], elevations = [], timestamps = [];
+                const coordinates = [], elevations = [], timestamps = [], distances = [];
                 const heartRates = [], cadences = [], powers = [], speeds = [], paces = [];
                 const gpsAccuracies = [], temperatures = [];
                 const verticalOscillations = [], groundContactTimes = [], verticalRatios = [];
@@ -573,6 +578,13 @@ export class FileParser {
 
                         if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
                             coordinates.push({ lat, lng });
+                            // The device's own cumulative odometer. Parsed with
+                            // lengthUnit 'm', so this is metres — normalised to km
+                            // to match every other distance in the app, and
+                            // sanity-checked against the session total below in
+                            // case the parser's units ever shift under us.
+                            distances.push(record.distance !== undefined && record.distance !== null
+                                ? record.distance / 1000 : null);
                             elevations.push(record.enhanced_altitude ?? record.altitude ?? null);
                             gpsElevations.push(record.altitude ?? null);
                             timestamps.push(record.timestamp ? new Date(record.timestamp) : null);
@@ -620,6 +632,7 @@ export class FileParser {
                 console.log(`  Speed values: ${nonNullSpeeds.length} non-null of ${smoothedSpeeds.length} total`);
                 console.log(`  Device: ${device ? `${device.productName || device.manufacturer} (fw ${device.firmwareVersion})` : 'not found'}`);
                 console.log(`  Session summary: ${sessionSummary ? 'found' : 'not found'}`);
+                console.log(`  Device distance channel: ${Utils.isUsableDistanceChannel(distances, coordinates.length) ? 'usable' : 'unusable/absent'} (${countValid(distances)}/${coordinates.length} points)`);
                 console.log('  Running dynamics coverage (non-null points):', {
                     verticalOscillation: `${countValid(verticalOscillations)}/${coordinates.length}`,
                     groundContactTime: `${countValid(groundContactTimes)}/${coordinates.length}`,
@@ -635,7 +648,7 @@ export class FileParser {
                 resolve(this.createRouteData(filename, color, coordinates, elevations,
                     timestamps, heartRates, cadences, powers, smoothedSpeeds, smoothedPaces,
                     {
-                        gpsAccuracies, device, sessionSummary,
+                        distances, gpsAccuracies, device, sessionSummary,
                         verticalOscillations, groundContactTimes, verticalRatios,
                         groundContactBalances, stepLengths, absolutePressures,
                         batteryLevels, hrZoneBoundaries, powerZoneBoundaries,
@@ -647,20 +660,74 @@ export class FileParser {
 
     static createRouteData(filename, color, coordinates, elevations, timestamps,
         heartRates, cadences, powers, speeds, paces, {
-            gpsAccuracies = [], device = null, sessionSummary = null,
+            distances = [], gpsAccuracies = [], device = null, sessionSummary = null,
             verticalOscillations = [], groundContactTimes = [], verticalRatios = [],
             groundContactBalances = [], stepLengths = [], absolutePressures = [],
             batteryLevels = [], hrZoneBoundaries = null, powerZoneBoundaries = null,
             gpsElevations = [], temperatures = []
         } = {}) {
-        const distance = Utils.calculateDistance(coordinates);
         const elevStats = Utils.calculateElevationStats(elevations);
 
-        let duration = null;
+        // Distance/duration recomputed from the raw GPS track. These are no
+        // longer the headline numbers, but they are what the session self-check
+        // measures the device's self-reported totals against — so they have to
+        // stay available and stay purely track-derived.
+        const gpsDistance = Utils.calculateDistance(coordinates);
+
+        let gpsDuration = null;
         const validTimestamps = timestamps.filter(t => t !== null);
         if (validTimestamps.length >= 2) {
-            duration = (validTimestamps[validTimestamps.length - 1] - validTimestamps[0]) / 1000;
+            gpsDuration = (validTimestamps[validTimestamps.length - 1] - validTimestamps[0]) / 1000;
         }
+
+        // A Haversine sum over the track accumulates GPS jitter as real
+        // distance and chords straight across any stretch where the fix was
+        // lost (those records are dropped for having no lat/lng). The device's
+        // own figure fuses GPS with the accelerometer/footpod, spans dropouts,
+        // and is what the watch displayed — so prefer it, session message
+        // first, then the record odometer, and fall back to the track only
+        // when neither is present (every GPX file, and FIT files without them).
+        let deviceDistances = distances;
+        const recordTotal = Utils.deviceTotalDistance(deviceDistances);
+        const sessionTotal = sessionSummary?.totalDistanceKm ?? null;
+
+        // Insurance against a units change in the CDN-loaded FIT parser: the
+        // odometer and the session total describe the same run and should agree
+        // to well under a percent. A gross mismatch means one of them is not in
+        // the units we think, so drop the per-point channel rather than plot it.
+        if (sessionTotal !== null && recordTotal !== null && sessionTotal > 0 &&
+            Math.abs(recordTotal - sessionTotal) / sessionTotal > 0.25) {
+            console.warn(`${filename}: record distance channel (${recordTotal.toFixed(2)} km) disagrees with session total (${sessionTotal.toFixed(2)} km) — ignoring the channel.`);
+            deviceDistances = [];
+        }
+
+        let distance, distanceSource;
+        if (sessionTotal !== null) {
+            distance = sessionTotal;
+            distanceSource = 'session';
+        } else if (recordTotal !== null && deviceDistances.length > 0) {
+            distance = recordTotal;
+            distanceSource = 'record';
+        } else {
+            distance = gpsDistance;
+            distanceSource = 'gps';
+        }
+
+        // Elapsed time, same precedence logic: the session message covers the
+        // whole recording, whereas the track-derived figure silently starts at
+        // the first GPS fix and so loses any pre-lock portion.
+        let duration, durationSource;
+        if (sessionSummary?.totalElapsedSeconds != null) {
+            duration = sessionSummary.totalElapsedSeconds;
+            durationSource = 'session';
+        } else {
+            duration = gpsDuration;
+            durationSource = 'gps';
+        }
+
+        // Moving time — elapsed minus auto-pause. Recorded for callers that
+        // want it; nothing is rewired onto it here.
+        const movingTime = sessionSummary?.totalTimerSeconds ?? null;
 
         // Only keep gpsElevations if they meaningfully differ from elevations
         // (i.e. the file has both GPS and barometric altitude)
@@ -682,6 +749,7 @@ export class FileParser {
             filename,
             color,
             coordinates,
+            distances: deviceDistances,
             elevations,
             gpsElevations: validGpsElevations,
             heartRates,
@@ -705,11 +773,21 @@ export class FileParser {
             timestamps,
             stats: {
                 distance,
+                distanceSource,
+                gpsDistance,
+                // Ascent/descent stay recomputed on purpose. Device-reported
+                // ascent is barometric and calibrated per-device, so comparing
+                // two watches on their own numbers compares their barometers;
+                // one consistent algorithm over both tracks is what this app
+                // wants. The device figure is still on sessionSummary.
                 elevationGain: elevStats.gain,
                 elevationLoss: elevStats.loss,
                 minElevation: elevStats.min,
                 maxElevation: elevStats.max,
-                duration
+                duration,
+                durationSource,
+                gpsDuration,
+                movingTime
             }
         };
     }

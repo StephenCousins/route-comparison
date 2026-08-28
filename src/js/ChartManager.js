@@ -368,10 +368,7 @@ export class ChartManager {
 
         // Process route data
         const processedRoutes = routes.map(route => {
-            const distances = [0];
-            for (let i = 1; i < route.coordinates.length; i++) {
-                distances.push(distances[i-1] + Utils.haversineDistance(route.coordinates[i-1], route.coordinates[i]));
-            }
+            const distances = Utils.buildCumulativeDistances(route);
 
             let metricData = [];
             switch(effectiveMetricType) {
@@ -538,11 +535,9 @@ export class ChartManager {
 
             if (effectiveMetricType === 'elevation' && this.showDualElev && route.gpsElevations && route.gpsElevations.length > 0) {
                 const gpsSmoothed = Utils.smoothData(route.gpsElevations, Math.round(Utils.getAdaptiveSmoothingParams(route.totalDistance).windowSize * (1 + this.smoothingLevel * 0.5)));
-                const { data: gpsData, distances: gpsDists } = Utils.decimateData(gpsSmoothed, (() => {
-                    const d = [0];
-                    for (let i = 1; i < route.coordinates.length; i++) d.push(d[i-1] + Utils.haversineDistance(route.coordinates[i-1], route.coordinates[i]));
-                    return d;
-                })(), Utils.getAdaptiveSmoothingParams(route.totalDistance).decimationFactor);
+                const { data: gpsData, distances: gpsDists } = Utils.decimateData(gpsSmoothed,
+                    Utils.buildCumulativeDistances(route),
+                    Utils.getAdaptiveSmoothingParams(route.totalDistance).decimationFactor);
                 const offset = this.routeOffsets[route.filename] || 0;
 
                 this.ctx.strokeStyle = route.color;

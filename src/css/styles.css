@@ -1715,6 +1715,14 @@ tr:hover {
     color: var(--text-secondary);
     margin: 0 0 15px;
 }
+.table-caption {
+    caption-side: top;
+    text-align: left;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    padding: 0 0 10px;
+}
 .deviation-table-container {
     flex: 1;
     overflow: auto;
