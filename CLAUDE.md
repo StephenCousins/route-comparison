@@ -204,3 +204,12 @@ index.html                # Legacy single-file version
 nixpacks.toml             # Railway deployment configuration
 .gitignore                # Excludes config.js and other sensitive files
 ```
+
+## Working With the User
+
+The user is not a coder and relies on Claude end to end. Explain changes in plain language.
+
+- **Preserve working code.** Before rewriting or extending a feature, read the current version (and `git log`/`git diff` when relevant) so nothing that already works is lost. Prefer small, targeted edits over rewrites, and run `npm test` before committing.
+- **Keep a checklist on multi-step tasks.** For anything touching several files or steps, keep a visible task checklist, tick items off as they're done, and check it before ending the turn so work isn't left half-finished. Include "existing behaviour still works" as an item.
+- **Earlier answers are settled.** Treat earlier answers in the conversation as settled unless the user asks about them again; don't re-open them on short follow-up questions.
+- **Match the existing design.** New UI should follow the existing styles in `src/css/styles.css` rather than generic defaults.
