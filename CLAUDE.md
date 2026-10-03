@@ -200,7 +200,6 @@ src/
     config.example.js      # Credentials template
 
 tests/                     # Vitest unit tests (tests/utils/*, tests/file-parser/*) — run with `npm test`
-index.html                # Legacy single-file version
 nixpacks.toml             # Railway deployment configuration
 .gitignore                # Excludes config.js and other sensitive files
 ```
